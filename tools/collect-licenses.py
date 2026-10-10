@@ -44,9 +44,11 @@ def collect(project, portable, cache):
     for (name, version), expected in sorted(dependencies.items()):
         p = nuget / name.lower() / version
         package = p / (name.lower() + '.' + version + '.nupkg')
-        actual = base64.b64encode(hashlib.sha512(package.read_bytes()).digest()).decode()
-        if expected != actual:
-            raise ValueError('NuGet content hash differs: ' + str(package))
+        actual = json.loads((p / '.nupkg.metadata').read_text(encoding='utf-8'))['contentHash']
+        pinned = next(item for item in lock['nuget_archives'] if item['name'].lower() == name.lower() and item['version'] == version)
+        raw_sha256 = hashlib.sha256(package.read_bytes()).hexdigest()
+        if expected != actual or raw_sha256 != pinned['sha256']:
+            raise ValueError('NuGet content or archive hash differs: ' + str(package))
         ns = {'n': 'http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd'}
         metadata = ET.parse(p / (name.lower() + '.nuspec')).getroot().find('n:metadata', ns)
         license_node = metadata.find('n:license', ns)
@@ -75,7 +77,7 @@ def collect(project, portable, cache):
         native_other_platform = name.startswith('runtime.') and name != 'runtime.native.System.IO.Ports'
         rows.append({'name': name, 'version': version, 'license': license_value,
                      'source': dict(repo.attrib) if repo is not None else 'https://www.nuget.org/packages/' + name + '/' + version,
-                     'nuget_sha512': actual, 'license_files': license_files,
+                     'nuget_content_hash': actual, 'archive_sha256': raw_sha256, 'license_files': license_files,
                      'scope': 'restore graph; other platform asset excluded' if native_other_platform else 'portable runtime'})
     rows.extend(lock['embedded_components'])
     (portable / 'DEPENDENCIES.json').write_text(json.dumps({'protocol': 1, 'components': rows}, indent=2) + '\n', encoding='utf-8')

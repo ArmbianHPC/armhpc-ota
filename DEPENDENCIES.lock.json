@@ -42,17 +42,17 @@
     {
       "name": "microsoft.netcore.app.runtime.win-x64",
       "version": "10.0.12",
-      "contentHash": "Oa/LIiAy6r6+LH+lGjfEkcaw9FZ5ateIhDGXG47vT2icruVFQmA5jOD/r+SRxWWJGzXnOvxnWFo+TEvemVcQ7g=="
+      "contentHash": "H3eh1w8Yevp6yO2+R3zbOPfwJ1vs2c/5PKa1ez7igGCF8EIycnzZr8gTjeVBAKjCPbyGuOdMSazLUnNqMsfTkw=="
     },
     {
       "name": "microsoft.windowsdesktop.app.runtime.win-x64",
       "version": "10.0.12",
-      "contentHash": "BeGI/KTBBca4pduu1nff61VvZAwlzVwqNmo+eVqT26ltsAJsQsF//DCPJssw+fXpARq+FQ7pVKiQed5igv8KYQ=="
+      "contentHash": "VsVtDEmt6l3gyhSs1G6B2u5BJoW2a7p9S4Kllui9YZv8jEwnlfpxpcZm9U3Wuc29zvw7iQ7bwddsc36KvGtwwg=="
     },
     {
       "name": "microsoft.aspnetcore.app.runtime.win-x64",
       "version": "10.0.12",
-      "contentHash": "n8qSkT3KkkXSpu9UU748wzEbrDwLOJCkOGxY0D/tvWOwUXUbS2qRk5icYG2SukR7+i1eO8YF4sOl+ivbohhRPA=="
+      "contentHash": "W017+ITNnqIsYwmtQllvLTKbEDA86hEsrHCgLVoHutuhngNEFacJHEHoHrcOUZXDS11fcpeZ+3vc09Ugg3npAQ=="
     }
   ],
   "license_materials": [
@@ -106,5 +106,189 @@
     "aarch64-linux-gnu-gcc": "13.3.0",
     "arm-linux-gnueabihf-gcc": "13.3.0"
   },
-  "maximum_glibc_abi": "2.36"
+  "maximum_glibc_abi": "2.36",
+  "nuget_archives": [
+    {
+      "name": "BouncyCastle.Cryptography",
+      "version": "2.7.0",
+      "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw==",
+      "sha256": "f091ffccab4d03993e660bace277659a79dee0972f54d7f1f4bd46d680966241",
+      "source": "https://api.nuget.org/v3-flatcontainer/bouncycastle.cryptography/2.7.0/bouncycastle.cryptography.2.7.0.nupkg"
+    },
+    {
+      "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+      "version": "8.0.2",
+      "contentHash": "3iE7UF7MQkCv1cxzCahz+Y/guQbTqieyxyaWKhrRO91itI9cOKO76OHeQDahqG4MmW5umr3CcCvGmK92lWNlbg==",
+      "sha256": "51f2df1100245f10da54f0bb7e813f277155117777d4fbbab902214e27372606",
+      "source": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.dependencyinjection.abstractions/8.0.2/microsoft.extensions.dependencyinjection.abstractions.8.0.2.nupkg"
+    },
+    {
+      "name": "Microsoft.Extensions.Logging.Abstractions",
+      "version": "8.0.3",
+      "contentHash": "dL0QGToTxggRLMYY4ZYX5AMwBb+byQBd/5dMiZE07Nv73o6I5Are3C7eQTh7K2+A4ct0PVISSr7TZANbiNb2yQ==",
+      "sha256": "e4c498d5a13051b4577a148f1d8c3470167215c507e2392069b75dc61322bb74",
+      "source": "https://api.nuget.org/v3-flatcontainer/microsoft.extensions.logging.abstractions/8.0.3/microsoft.extensions.logging.abstractions.8.0.3.nupkg"
+    },
+    {
+      "name": "SSH.NET",
+      "version": "2026.0.0",
+      "contentHash": "Yu9dirPq8l3oaat0+OQ7K0nUf5MmYltpia5UGqsApTG4zTPvBC1cxbNnC3NERij26dUST0A3Ef1QdHSn5ArbWQ==",
+      "sha256": "b2515de616821198f5cf5530f5ea198912730bbe3504ef4c6aee00a661fecac2",
+      "source": "https://api.nuget.org/v3-flatcontainer/ssh.net/2026.0.0/ssh.net.2026.0.0.nupkg"
+    },
+    {
+      "name": "System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "UT9dTPqoEjG5AuPu2NA29hBlNyW2bGIVv/CoV2I2IjIRRnAzbXHVRdVZG5NKfuWTLmpQZfAaEAWV9MSn3VDrtg==",
+      "sha256": "32aee7e1a98053f5c0e049f5e8a40b9de11997c10f15327b65b9744ea76f33c8",
+      "source": "https://api.nuget.org/v3-flatcontainer/system.io.ports/10.0.0/system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "System.Security.Cryptography.ProtectedData",
+      "version": "10.0.0",
+      "contentHash": "qy6C3gQRTrfhFfuiIYU1jNwWfFdJpBVo1BARW7jgMm1zTEm3LRzLLyOLJGaAuKE+nZCGkEP71y4rj9NWjqLGdQ==",
+      "sha256": "8684759555d51145df22d373276dff491c9b2c1a9a7f8658cc9063956807a523",
+      "source": "https://api.nuget.org/v3-flatcontainer/system.security.cryptography.protecteddata/10.0.0/system.security.cryptography.protecteddata.10.0.0.nupkg"
+    },
+    {
+      "name": "microsoft.aspnetcore.app.runtime.win-x64",
+      "version": "10.0.12",
+      "contentHash": "W017+ITNnqIsYwmtQllvLTKbEDA86hEsrHCgLVoHutuhngNEFacJHEHoHrcOUZXDS11fcpeZ+3vc09Ugg3npAQ==",
+      "sha256": "59025d88c8f5178e8569f91c7cbc56ad3ead3d83a777477d17fade3f9cdd8103",
+      "source": "https://api.nuget.org/v3-flatcontainer/microsoft.aspnetcore.app.runtime.win-x64/10.0.12/microsoft.aspnetcore.app.runtime.win-x64.10.0.12.nupkg"
+    },
+    {
+      "name": "microsoft.netcore.app.runtime.win-x64",
+      "version": "10.0.12",
+      "contentHash": "H3eh1w8Yevp6yO2+R3zbOPfwJ1vs2c/5PKa1ez7igGCF8EIycnzZr8gTjeVBAKjCPbyGuOdMSazLUnNqMsfTkw==",
+      "sha256": "0f63dee7ca4383cb16848966f81e439399e2058e1671ebe27e5eaf4b200e8691",
+      "source": "https://api.nuget.org/v3-flatcontainer/microsoft.netcore.app.runtime.win-x64/10.0.12/microsoft.netcore.app.runtime.win-x64.10.0.12.nupkg"
+    },
+    {
+      "name": "microsoft.windowsdesktop.app.runtime.win-x64",
+      "version": "10.0.12",
+      "contentHash": "VsVtDEmt6l3gyhSs1G6B2u5BJoW2a7p9S4Kllui9YZv8jEwnlfpxpcZm9U3Wuc29zvw7iQ7bwddsc36KvGtwwg==",
+      "sha256": "68bce56d2402969d82ac77fbd2b2a54f55fda86ea060366e6ddb832353dab80a",
+      "source": "https://api.nuget.org/v3-flatcontainer/microsoft.windowsdesktop.app.runtime.win-x64/10.0.12/microsoft.windowsdesktop.app.runtime.win-x64.10.0.12.nupkg"
+    },
+    {
+      "name": "runtime.android-arm.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "ehgGD1p2lNdYs/4xC1pqB8Cmuqq/c7YWOu+6YRZNpwgebcPyjzVNU2yjgBxHce4ER28hNT4DTeODr35xIHv+cw==",
+      "sha256": "d1b984a4c3c089212174fd87dc1be0d1f7fc2915d342ed1a18ba98548d85fcf5",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.android-arm.runtime.native.system.io.ports/10.0.0/runtime.android-arm.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.android-arm64.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "+LI5JP5YDzXvuYP5XHnEFURgGVb0misSYb2vYPcrTq7xH8EF8wp8N3fAU3IGJ2eeJ1KzvtVmsuQok+ZTrmooww==",
+      "sha256": "02a9ba556499c583426bc810594ed0f9c288597dfb43a504d11373923fe4a082",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.android-arm64.runtime.native.system.io.ports/10.0.0/runtime.android-arm64.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.android-x64.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "7wsbMw7Qaw5e2CittVwAO3Zub8ZNMG5fJrr3/8fVfMuyR1QaAYe0cbqmltTpstbiSK8G8yQDWCj3rJnre6ffXw==",
+      "sha256": "bdecde514bb5057c96103ae97809f747263e56fde5a49adc8b86871941ed5682",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.android-x64.runtime.native.system.io.ports/10.0.0/runtime.android-x64.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.android-x86.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "ZVKPUs3xVKzDQaVYnetP4BDuy1sdbtydaFZpiGIpmiczLfnVPqB0ddMShrJ1fQk1aM7tPcst/KzwUHjPqgijlQ==",
+      "sha256": "e862736fd51ec6036715a1c904d2c6eeec5fe658aa1a1d39ec41e3b8bb4a4b25",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.android-x86.runtime.native.system.io.ports/10.0.0/runtime.android-x86.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.linux-arm.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "IA5+Djaq6B6QRfO1x7qS0LoB7Cw/46c18zs98cP0Se+gpaUciJxSsBAl9PAPbfEIK5cADW5ecNvtGvNtk7S1Mg==",
+      "sha256": "b874bc937f06a98d4cda43df5ece81737eab4ad02677566e2d24758962a07099",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.linux-arm.runtime.native.system.io.ports/10.0.0/runtime.linux-arm.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.linux-arm64.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "G2udW9Ej7OYIPjgvcb+K6ooeU/84PqHnxMg8/vz1SHmCCLpEvCYS4W73MoL/Lqz28fJ1Pehy6cShp8DKKGbBPg==",
+      "sha256": "79a1dd82593588d53f4f2dab9fb19bb9dbea23aab6e72f9e36ba93a528137d9d",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.linux-arm64.runtime.native.system.io.ports/10.0.0/runtime.linux-arm64.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.linux-bionic-arm64.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "yXj5BTjwpjnZhkyC1JZLbMdMh6tamF3qjac7DAHQa/qM8ICqjxK5F6duS3i0OnWPaZBZUKkpP1dyZ8FeL7GsKQ==",
+      "sha256": "cb727ea778ab8a48ed56b309b658ba1f720640078e56c86391a0151027d99649",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.linux-bionic-arm64.runtime.native.system.io.ports/10.0.0/runtime.linux-bionic-arm64.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.linux-bionic-x64.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "nxCe45MUNmsCLhgIn2Catvf25ipmHzTBoXUfkjsl97o2RJXl5PSjx2jiYvJIz8O9Zx7mRGBBtgvLtpLDm1Ci3g==",
+      "sha256": "ce5b7ce5c2527819bdb6b4a20e192957a370ed2ebdd24cd23ddff0c7fbf6a9b1",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.linux-bionic-x64.runtime.native.system.io.ports/10.0.0/runtime.linux-bionic-x64.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.linux-musl-arm.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "PK0gGqX/FrLP+fv5c+56s36bqQu8umGt2h1L5ze1rqioYb1NErZg3D+zA4s45pHLDupJ7vmlvLo72DLFPAnzow==",
+      "sha256": "640b57a76b830695691bd1c76de2d9e70dcb9fbf4c1ddb7e73082f24f63e5890",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.linux-musl-arm.runtime.native.system.io.ports/10.0.0/runtime.linux-musl-arm.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.linux-musl-arm64.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "kGmMJHJIairC0znRxMY8l8dovr7mpqb1wTRT0k/H0pHUYMC0yWyBxPQ6Jhss/tevazLYJG+kfsNw8oouF2pyvQ==",
+      "sha256": "182698ed9d9a2eeccc95699c148bdb7171ab7266feab5064c5cbc3df7413b5e8",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.linux-musl-arm64.runtime.native.system.io.ports/10.0.0/runtime.linux-musl-arm64.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.linux-musl-x64.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "dUvttlipSsyfqgmGkdzsBTSwDA92r7NIL860jIGlaZ31kY7vGGxa9EeR9Y//vj5JmIcRVMhoe69u2t1pITPHTQ==",
+      "sha256": "2b5fe06dbd1277180386c3e3f6bb131b87e84df6457ed414c717265d3f16bf08",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.linux-musl-x64.runtime.native.system.io.ports/10.0.0/runtime.linux-musl-x64.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.linux-x64.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "BYU08iO5Ey9oGMxSXCrsmEHkT51SifbIL8yBCD7e59P90tZzxpzm89j+guGsb24+qbiwOlCQmpi10dgWn6VmWg==",
+      "sha256": "7121c085a789768423ede29a23b223c01f21f9c4368356366c1a080832742a65",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.linux-x64.runtime.native.system.io.ports/10.0.0/runtime.linux-x64.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.maccatalyst-arm64.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "DGVYub3vzhIXntukgOH18NOs6O6Y0PivftW/DYJZQs4lrA/zIUWs7DFXdY4D+4dcJjKBweb5qp4uRIko/vtodQ==",
+      "sha256": "6e4f80a8b2f469db595d50bef181750563ac3631b7b5273faf275ca1f981eb83",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.maccatalyst-arm64.runtime.native.system.io.ports/10.0.0/runtime.maccatalyst-arm64.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.maccatalyst-x64.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "h+H9WlpBbG1b3ZcnjaRdV1avmz1mOWvkjGoXlYh+brPPT3XpP2KWtTOLAz/3JpQe49LwGq+rOX8GwbzQvUpdkA==",
+      "sha256": "e4a4a810a77b405e4253b8b092fcad8bdefea5adbd6af00570ec9eb16b496ee6",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.maccatalyst-x64.runtime.native.system.io.ports/10.0.0/runtime.maccatalyst-x64.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "xL+e2TzXMx4Ts/TVo/v6MbNtKPc3OASCN1cHqVXzWdT+fOH9m4BM12SSXkp5clP5Rj955Vh/4Lj1faD+FGwjiQ==",
+      "sha256": "dd2669c2cf2c85c7c6e6ddf2a017438045965cffdb61fee7cc78d5ded33fe859",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.native.system.io.ports/10.0.0/runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.osx-arm64.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "UrTKcNTBfHCvwmMJHJotiY8FVcQu1mk73b+AsLmVlu0S3Z27VvwWgd3fcw1CjkqX45BoVYMCE3JNhIExIKSrzQ==",
+      "sha256": "4f5cce0f1a29abd1f6fe0a1da870d7d417d05a3a836ca2df847eaae6f8e737ce",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.osx-arm64.runtime.native.system.io.ports/10.0.0/runtime.osx-arm64.runtime.native.system.io.ports.10.0.0.nupkg"
+    },
+    {
+      "name": "runtime.osx-x64.runtime.native.System.IO.Ports",
+      "version": "10.0.0",
+      "contentHash": "kggkJk7S8OcoOLa9OyrP2zQ/eStiKHOytWVK8lJuRckzcz52eUgDo66+d9n2KciukcNmeAbmSHEY6fh2n394Jg==",
+      "sha256": "e1447b78e0bf81e753a6567d840e4c94dd429165a47c4aede760d506339d4bc9",
+      "source": "https://api.nuget.org/v3-flatcontainer/runtime.osx-x64.runtime.native.system.io.ports/10.0.0/runtime.osx-x64.runtime.native.system.io.ports.10.0.0.nupkg"
+    }
+  ]
 }
