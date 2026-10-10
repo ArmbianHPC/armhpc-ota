@@ -49,8 +49,11 @@ def collect(project, portable, cache):
         raw_sha256 = hashlib.sha256(package.read_bytes()).hexdigest()
         if expected != actual or raw_sha256 != pinned['sha256']:
             raise ValueError('NuGet content or archive hash differs: ' + str(package))
-        ns = {'n': 'http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd'}
-        metadata = ET.parse(p / (name.lower() + '.nuspec')).getroot().find('n:metadata', ns)
+        root = ET.parse(p / (name.lower() + '.nuspec')).getroot()
+        ns = {'n': root.tag.partition('}')[0].lstrip('{')}
+        metadata = root.find('n:metadata', ns)
+        if metadata is None:
+            raise ValueError('NuGet package metadata missing: ' + name)
         license_node = metadata.find('n:license', ns)
         license_value = license_node.text if license_node is not None else 'See bundled upstream notices'
         repo = metadata.find('n:repository', ns)
