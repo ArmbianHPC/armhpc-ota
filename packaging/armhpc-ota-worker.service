@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=ARMHPC persistent OTA worker
+Wants=armhpc-clock-floor.service
+After=armhpc-clock-floor.service local-fs.target armhpc-ota-health.service armhpc-ota-fallback-health.service
+RequiresMountsFor=/var/lib/armhpc/ota
+ConditionPathExists=/var/lib/armhpc/ota/control.json
+
+[Service]
+Type=oneshot
+Environment=PYTHONPATH=/usr/lib/armhpc-ota
+ExecStart=/usr/bin/python3 -m armhpc_ota _service worker --json
+TimeoutStartSec=infinity
+TimeoutStopSec=infinity
+UMask=0077
+KillMode=control-group
+Restart=on-abnormal
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

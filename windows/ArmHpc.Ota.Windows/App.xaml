@@ -1,0 +1,9 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<Application x:Class="ArmHpc.Ota.Windows.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Application.Resources>
+    <Style TargetType="Button"><Setter Property="Padding" Value="12,6"/><Setter Property="Margin" Value="0,0,8,6"/><Setter Property="Background" Value="#EEF3FA"/><Setter Property="BorderBrush" Value="#D5DEEA"/><Setter Property="Foreground" Value="#16324F"/><Setter Property="Cursor" Value="Hand"/></Style>
+    <Style TargetType="TextBox"><Setter Property="Padding" Value="7"/><Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="BorderBrush" Value="#CBD5E1"/></Style>
+    <Style TargetType="ComboBox"><Setter Property="Padding" Value="6"/></Style>
+    <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Background" Value="#2467A4"/><Setter Property="Foreground" Value="White"/><Setter Property="BorderBrush" Value="#2467A4"/></Style>
+  </Application.Resources>
+</Application>

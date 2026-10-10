@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=ARMHPC independent Rescue health acknowledgement
+After=local-fs.target ssh.service armhpc-ota-health.service
+Before=armhpc-ota-worker.service
+ConditionKernelCommandLine=armhpc.fallback=1
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/lib/armhpc-ota/fallback-health.py
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

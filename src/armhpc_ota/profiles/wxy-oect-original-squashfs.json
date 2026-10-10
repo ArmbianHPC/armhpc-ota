@@ -1,0 +1,35 @@
+{
+  "id": "wxy-oect-original",
+  "architecture": "arm64",
+  "compatible": [
+    "rockchip,rk3566-wxy-oec-turbo-4g",
+    "rockchip,rk3566"
+  ],
+  "layout": "oect-squashfs-ab-v2",
+  "anchor_abi": "armhpc-anchor-squashfs-v2",
+  "sector_size": 512,
+  "boot_start": 368640,
+  "boot_sectors": 1048576,
+  "rescue_a_start": 1417216,
+  "rescue_a_sectors": 1048576,
+  "minimum_emmc_bytes": 7818182656,
+  "protected_prefix_bytes": 188743680,
+  "system_bytes": 68719476736,
+  "labels": {
+    "boot": "OECT_BOOT",
+    "rescue_a": "OECT_RESCUE",
+    "rescue_b": "ARMHPC_RESCUE_B",
+    "shared": "OTA_SHARED",
+    "system": "OECT_ROOT",
+    "data": "OECT_DATA"
+  },
+  "watchdog": "/dev/watchdog0",
+  "hardware_gate_required": true,
+  "write_enabled": true,
+  "development_ota_supported": true,
+  "rescue_fstype": "squashfs",
+  "trailer_bytes": 65536,
+  "overlay_reserve_bytes": 536870912,
+  "rescue_b_start": 2465792,
+  "shared_start": 3514368
+}

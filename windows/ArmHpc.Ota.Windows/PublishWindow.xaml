@@ -1,0 +1,17 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<Window x:Class="ArmHpc.Ota.Windows.PublishWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="ARMHPC · 内网发布" Width="870" Height="730" Background="#F4F7FB" FontFamily="Microsoft YaHei UI">
+ <Grid Margin="22"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+ <StackPanel><TextBlock Text="内网版本发布" FontSize="23" FontWeight="SemiBold" Margin="0,0,0,14"/>
+  <TextBlock Text="使用现成签名目录：填写发布目录和访问地址，点击“启动发布服务”。制作新版本时使用下方签名功能。" TextWrapping="Wrap"/>
+  <TextBlock Text="发布目录" Margin="0,12,0,4"/><TextBox x:Name="PublishRoot"/>
+  <TextBlock Text="访问地址（含协议和端口；发布后版本 URL 固定）" Margin="0,8,0,4"/><TextBox x:Name="BaseUrl"/>
+  <Grid Margin="0,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="3*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="目录之外的 Ed25519 私钥文件"/><TextBox x:Name="KeyPath"/></StackPanel><StackPanel Grid.Column="1" Margin="12,0,0,0"><TextBlock Text="设备已信任的 Key ID"/><TextBox x:Name="KeyId"/></StackPanel></Grid>
+  <WrapPanel Margin="0,12,0,12"><Button Content="导入并签名版本" Click="ImportRelease"/><Button Content="制作并签名维护包" Click="ImportTools"/><Button Content="续期索引（14天）" Click="RenewIndex"/></WrapPanel>
+ </StackPanel>
+ <StackPanel Grid.Row="1"><TextBlock Text="文件服务" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="绑定上述地址中的具体内网 IP。关闭管理窗口后，发布服务继续运行。" Margin="0,5,0,8"/>
+  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="3*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="HTTPS PFX 证书（使用 HTTP 时留空，文件须在发布目录之外）"/><TextBox x:Name="CertificatePath"/></StackPanel><StackPanel Grid.Column="1" Margin="12,0,0,0"><TextBlock Text="证书密码"/><PasswordBox x:Name="CertificatePassword"/></StackPanel></Grid>
+  <WrapPanel Margin="0,12,0,12"><Button Content="启动发布服务" Click="StartServer"/><Button Content="服务状态" Click="ServerStatus"/><Button Content="停止发布服务" Click="StopServer"/><Button Content="下载请求日志" Click="RequestLogs"/></WrapPanel>
+ </StackPanel>
+ <TextBox Grid.Row="2" x:Name="Output" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" FontFamily="Consolas, Microsoft YaHei UI"/>
+ </Grid>
+</Window>

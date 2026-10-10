@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=ARMHPC OTA watchdog guardian
+DefaultDependencies=no
+After=systemd-udev-trigger.service
+Before=basic.target armhpc-ota-health.service
+ConditionKernelCommandLine=|armhpc.watchdog=1
+ConditionPathExists=|/run/armhpc-ota-watchdog-required
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/armhpc-ota/watchdog-guard --guard /dev/watchdog0 180 /run/armhpc-ota-healthy
+Restart=no
+TimeoutStopSec=5
+
+[Install]
+WantedBy=sysinit.target

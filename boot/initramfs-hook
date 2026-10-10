@@ -1,0 +1,49 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-only
+set -eu
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "${1:-}" in prereqs) prereqs; exit 0;; esac
+. /usr/share/initramfs-tools/hook-functions
+manual_add_modules dw_wdt
+manual_add_modules ahci
+manual_add_modules ahci_platform
+manual_add_modules stmmac
+manual_add_modules dwmac_rk
+manual_add_modules phy_rockchip_naneng_combphy
+manual_add_modules ext4
+manual_add_modules squashfs
+manual_add_modules overlay
+copy_exec /usr/bin/python3.11 /usr/bin/python3.11
+copy_exec /usr/sbin/kexec /usr/sbin/kexec
+copy_exec /usr/sbin/blkid /usr/sbin/blkid
+for tool in sgdisk sfdisk partx lsblk blockdev e2fsck resize2fs; do copy_exec "$(command -v "$tool")"; done
+mkdir -p "$DESTDIR/scripts" "$DESTDIR/etc/armhpc"
+cp /usr/lib/armhpc-ota/resources/initramfs-armhpc "$DESTDIR/scripts/armhpc"
+chmod 755 "$DESTDIR/scripts/armhpc"
+for name in ota.json anchor-kernel-sha256 anchor-dtb-sha256; do
+    [ ! -f "/etc/armhpc/$name" ] || cp "/etc/armhpc/$name" "$DESTDIR/etc/armhpc/$name"
+done
+if [ -d /etc/armhpc/rescue-defaults ]; then cp -a /etc/armhpc/rescue-defaults "$DESTDIR/etc/armhpc/"; fi
+copy_exec /usr/lib/armhpc-ota/watchdog-guard /usr/lib/armhpc-ota/watchdog-guard
+mkdir -p "$DESTDIR/usr/lib/python3.11" "$DESTDIR/usr/lib/python3/dist-packages" "$DESTDIR/etc/armhpc/ota-trust.d"
+cp -a /usr/lib/python3.11/. "$DESTDIR/usr/lib/python3.11/"
+cp -a /usr/lib/python3/dist-packages/cryptography* "$DESTDIR/usr/lib/python3/dist-packages/"
+cp -a /usr/lib/python3/dist-packages/_cffi_backend* "$DESTDIR/usr/lib/python3/dist-packages/"
+cp -a /usr/lib/armhpc-ota "$DESTDIR/usr/lib/"
+cp -a /etc/armhpc/ota-trust.d/. "$DESTDIR/etc/armhpc/ota-trust.d/"
+ln -sf python3.11 "$DESTDIR/usr/bin/python3"
+# Copy shared libraries of Python extension modules as well as the interpreter.
+find /usr/lib/python3.11 /usr/lib/python3/dist-packages/cryptography /usr/lib/python3/dist-packages -maxdepth 3 -name '*.so' -type f | while IFS= read -r library; do
+    # copy_exec skips dependencies when its destination already exists.
+    rm -f "${DESTDIR}${library}"
+    copy_exec "$library" "$library"
+done
+
+# OpenSSL 3 loads providers through dlopen; ldd alone cannot discover these DSOs.
+for directory in /usr/lib/*/ossl-modules; do
+    [ -d "$directory" ] || continue
+    for library in "$directory"/*.so; do [ ! -f "$library" ] || copy_exec "$library" "$library"; done
+done
+mkdir -p "$DESTDIR/etc/ssl"
+[ ! -f /etc/ssl/openssl.cnf ] || cp -L /etc/ssl/openssl.cnf "$DESTDIR/etc/ssl/openssl.cnf"

@@ -1,0 +1,13 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-only
+mountroot()
+{
+    if ! /usr/bin/python3 /usr/lib/armhpc-ota/squashfs-boot.py "$rootmnt"; then
+        for channel in /sys/class/leds/*:status; do
+            [ -d "$channel" ] || continue
+            echo none > "$channel/trigger"
+            case "$channel" in *red:status) echo 1 > "$channel/brightness";; *) echo 0 > "$channel/brightness";; esac
+        done
+        panic "ARMHPC: no verified root; inspect /run/armhpc/boot-errors.log"
+    fi
+}

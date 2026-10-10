@@ -1,0 +1,110 @@
+{
+  "protocol": 1,
+  "sdk": "10.0.401",
+  "dotnet_runtime": "10.0.12",
+  "python": {
+    "version": "3.14.5",
+    "file": "python-3.14.5-embed-amd64.zip",
+    "url": "https://www.python.org/ftp/python/3.14.5/python-3.14.5-embed-amd64.zip",
+    "sha256": "ba6bd811c4eedb19195cf275770ef127e893d63701e24152606e2cb76f6d876a"
+  },
+  "wheels": [
+    {
+      "name": "cffi",
+      "version": "2.1.1",
+      "file": "cffi-2.1.1-cp314-cp314-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/a7/06/1c3e01e3ba14c39f6d10bfbac52753b7e22259e38088e5cfe1d704918690/cffi-2.1.1-cp314-cp314-win_amd64.whl",
+      "sha256": "3222ba5d678f80a030e6afbcc33dc1ae5cb45facabb61cee2c7016b8432fde48"
+    },
+    {
+      "name": "cryptography",
+      "version": "50.0.2",
+      "file": "cryptography-50.0.2-cp311-abi3-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/9a/4f/adfc442765721292fff86d314ce385d3249d22db42295c0dd057727b60f3/cryptography-50.0.2-cp311-abi3-win_amd64.whl",
+      "sha256": "7afa5a6602a9f29af1f3a2965f831bae7c9d5d597b7cbb716d41ab3b7d89879c"
+    },
+    {
+      "name": "pycparser",
+      "version": "3.0",
+      "file": "pycparser-3.0-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl",
+      "sha256": "b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992"
+    },
+    {
+      "name": "zstandard",
+      "version": "0.25.0",
+      "file": "zstandard-0.25.0-cp314-cp314-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/3a/43/241f9615bcf8ba8903b3f0432da069e857fc4fd1783bd26183db53c4804b/zstandard-0.25.0-cp314-cp314-win_amd64.whl",
+      "sha256": "c19bcdd826e95671065f8692b5a4aa95c52dc7a02a4c5a0cac46deb879a017a2"
+    }
+  ],
+  "runtime_packs": [
+    {
+      "name": "microsoft.netcore.app.runtime.win-x64",
+      "version": "10.0.12",
+      "contentHash": "Oa/LIiAy6r6+LH+lGjfEkcaw9FZ5ateIhDGXG47vT2icruVFQmA5jOD/r+SRxWWJGzXnOvxnWFo+TEvemVcQ7g=="
+    },
+    {
+      "name": "microsoft.windowsdesktop.app.runtime.win-x64",
+      "version": "10.0.12",
+      "contentHash": "BeGI/KTBBca4pduu1nff61VvZAwlzVwqNmo+eVqT26ltsAJsQsF//DCPJssw+fXpARq+FQ7pVKiQed5igv8KYQ=="
+    },
+    {
+      "name": "microsoft.aspnetcore.app.runtime.win-x64",
+      "version": "10.0.12",
+      "contentHash": "n8qSkT3KkkXSpu9UU748wzEbrDwLOJCkOGxY0D/tvWOwUXUbS2qRk5icYG2SukR7+i1eO8YF4sOl+ivbohhRPA=="
+    }
+  ],
+  "license_materials": [
+    {
+      "path": "LICENSES/third-party/MIT.txt",
+      "source": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/MIT.txt",
+      "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+    },
+    {
+      "path": "LICENSES/third-party/OpenSSL-3.0.20-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.0.20/LICENSE.txt",
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+    },
+    {
+      "path": "LICENSES/third-party/OpenSSL-4.0.3-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/openssl/openssl/openssl-4.0.3/LICENSE.txt",
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+    }
+  ],
+  "embedded_components": [
+    {
+      "name": "OpenSSL (CPython _ssl)",
+      "version": "3.0.20",
+      "license": "Apache-2.0",
+      "source": "https://github.com/openssl/openssl/tree/openssl-3.0.20",
+      "license_file": "LICENSES/third-party/OpenSSL-3.0.20-LICENSE.txt"
+    },
+    {
+      "name": "OpenSSL (cryptography)",
+      "version": "4.0.3",
+      "license": "Apache-2.0",
+      "source": "https://github.com/openssl/openssl/tree/openssl-4.0.3",
+      "license_file": "LICENSES/third-party/OpenSSL-4.0.3-LICENSE.txt"
+    },
+    {
+      "name": "libffi (cffi)",
+      "version": "embedded in pinned cffi 2.1.1 wheel",
+      "license": "MIT",
+      "source": "https://github.com/libffi/libffi",
+      "license_directory": "LICENSES/third-party/cffi-2.1.1"
+    },
+    {
+      "name": "Zstandard (zstandard wheel)",
+      "version": "1.5.7",
+      "license": "BSD-3-Clause OR GPL-2.0-only",
+      "source": "https://github.com/facebook/zstd/tree/v1.5.7",
+      "license_directory": "LICENSES/third-party/zstandard-0.25.0"
+    }
+  ],
+  "native_compilers": {
+    "aarch64-linux-gnu-gcc": "13.3.0",
+    "arm-linux-gnueabihf-gcc": "13.3.0"
+  },
+  "maximum_glibc_abi": "2.36"
+}

@@ -1,0 +1,15 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-only
+case "${1:-}" in prereqs) exit 0;; esac
+IFS= read -r a </proc/cmdline || exit 1
+case " $a " in *" armhpc.anchor=1 "*) ;; *) exit 0;; esac
+/usr/bin/python3 /usr/lib/armhpc-ota/boot-entry.py || {
+    echo 'ARMHPC bootstrap failed: no verified rescue. Entering recovery shell.' >&2
+    for channel in /sys/class/leds/*:status; do
+        [ -d "$channel" ] || continue
+        echo none > "$channel/trigger"
+        case "$channel" in *red:status) echo 1 > "$channel/brightness";; *) echo 0 > "$channel/brightness";; esac
+    done
+    /bin/sh
+    exit 1
+}

@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=ARMHPC watchdog boot stage evidence
+After=local-fs.target armhpc-clock-floor.service
+Before=ssh.service
+ConditionPathIsMountPoint=/var/lib/armhpc/ota
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -m armhpc_ota.diagnostics
+Environment=PYTHONPATH=/usr/lib/armhpc-ota
+TimeoutStopSec=2
+[Install]
+WantedBy=multi-user.target

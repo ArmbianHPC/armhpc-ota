@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=ARMHPC boot trial health confirmation
+Wants=armhpc-clock-floor.service
+After=armhpc-clock-floor.service local-fs.target ssh.service
+RequiresMountsFor=/var/lib/armhpc/ota
+Before=armhpc-ota-worker.service
+ConditionPathExists=/var/lib/armhpc/ota/control.json
+
+[Service]
+Type=oneshot
+Environment=PYTHONPATH=/usr/lib/armhpc-ota
+ExecStartPre=/usr/bin/python3 /usr/lib/armhpc-ota/fallback-health.py
+ExecStart=/usr/bin/python3 -m armhpc_ota _service confirm --json
+ExecStartPost=/usr/bin/python3 /usr/lib/armhpc-ota/fallback-health.py
+TimeoutStartSec=240
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

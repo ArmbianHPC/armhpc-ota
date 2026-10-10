@@ -1,0 +1,11 @@
+include LICENSE COPYRIGHT VERSION README.md THIRD-PARTY-NOTICES.md REUSE.toml global.json DEPENDENCIES.lock.json
+recursive-include LICENSES *.txt
+recursive-include src *.py *.json
+recursive-include boot *.py *.c initramfs-*
+recursive-include packaging *.py *.service
+recursive-include tools *.py
+recursive-include windows *.cs *.csproj *.xaml *.props packages.lock.json
+recursive-include docs *.md *.json
+recursive-include tests *.py *.json
+global-exclude *.pyc *.pem *.key *.img *.xz *.zst
+prune build

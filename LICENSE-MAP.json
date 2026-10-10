@@ -1,0 +1,8 @@
+{
+  "protocol": 1,
+  "original": "GPL-3.0-only",
+  "shared_original": "GPL-2.0-only OR GPL-3.0-only",
+  "mapping": "REUSE.toml and inline SPDX",
+  "inventory_command": "python tools/license-audit.py --output <outside-source>/license-inventory.json",
+  "third_party": "THIRD-PARTY-NOTICES.md"
+}

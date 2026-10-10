@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=ARMHPC durable paired BOOT diagnostic maintenance
+After=local-fs.target armhpc-clock-floor.service
+RequiresMountsFor=/var/lib/armhpc/ota
+ConditionPathExists=/var/lib/armhpc/ota/boot-maintenance/task.json
+ConditionPathExists=!/run/armhpc-ota-maintenance-recovery
+[Service]
+Type=oneshot
+Environment=PYTHONPATH=/usr/lib/armhpc-ota
+ExecStart=/usr/bin/python3 -m armhpc_ota.cli _service boot-maintenance
+TimeoutStartSec=1h
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+version = 1
+
+[[annotations]]
+path = ["**/*.json", "**/*.md", "VERSION", ".gitignore", ".gitattributes", "**/*.toml", "**/*.cmd"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 ARMHPC contributors"
+SPDX-License-Identifier = "GPL-3.0-only"
