@@ -85,7 +85,7 @@ def build(args):
             if path.is_file() and '__pycache__' not in path.parts and path.suffix not in ('.pdb', '.pyc'):
                 z.write(path, 'ARMHPC-OTA/' + path.relative_to(portable).as_posix())
     shutil.copy2(portable / 'DEPENDENCIES.json', output / 'DEPENDENCIES.json')
-    shutil.make_archive(str(output / 'armhpc-1.0.0-licenses'), 'zip', portable, 'LICENSES')
+    shutil.make_archive(str(output / ('armhpc-' + version + '-licenses')), 'zip', portable, 'LICENSES')
     artifacts = [p for p in output.iterdir() if p.is_file() and p.name not in ('SHA256SUMS', 'tool-release.json')]
     report = {'version': version, 'protocol': 1, 'source_commits': refs, 'sdk': sdk,
               'dotnet_runtime': lock['dotnet_runtime'], 'hardware_verified': False, 'system_image_built': False,

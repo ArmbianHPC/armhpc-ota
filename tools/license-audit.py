@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only
+# SPDX-License-Identifier: GPL-3.0-only
 """Inventory publishable sources without inspecting local caches or user files."""
 import argparse,hashlib,json,re
 from pathlib import Path
@@ -20,7 +20,14 @@ def inventory(root):
         expression=m.group(1).strip().removesuffix('-->').strip() if m else default
         foreign=q.parts[:5]==('adapters','boards','wxy-oect-original','armbian','kernel-6.12.111') and p.suffix=='.patch'
         dts=q.as_posix().endswith('/dts/rk3566-wxy-oec-turbo-4g.dts')
-        if foreign:expression='GPL-2.0-only';origin='Armbian build 147b9a23f09fae4d5ef8e73cf07ee69652ff4976 / Linux patches'
+        if foreign:
+            expression='GPL-2.0-only'
+            if p.name=='board-oect-usb2-peripheral-power.patch':
+                origin='ARMHPC local backport / Andreas Zdziarstek RFC 20260706223627.113814-2 on lore.kernel.org/linux-phy'
+            elif p.name=='zz-armhpc-linux-6.12.111-driver-apis.patch':
+                origin='ARMHPC driver compatibility adaptation / Linux 6.12.111 e2acc2211022246c77740d5df08265cc27eedcc5'
+            else:
+                origin='Armbian build 147b9a23f09fae4d5ef8e73cf07ee69652ff4976 / original patch authors / ARMHPC context backports'
         elif dts:origin='unifreq linux-6.12.y 4c0b3046f608fad852b55de1b234d43b8e178034 / Linux 53ec6d21fe1ec0677f9db56a23dda8d145eda102'
         elif q.parts[0]=='LICENSES' or q.as_posix()=='LICENSE':origin='Original license text'
         else:origin='ARMHPC contributors'
