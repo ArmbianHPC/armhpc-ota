@@ -17,7 +17,7 @@ manual_add_modules overlay
 copy_exec /usr/bin/python3.11 /usr/bin/python3.11
 copy_exec /usr/sbin/kexec /usr/sbin/kexec
 copy_exec /usr/sbin/blkid /usr/sbin/blkid
-for tool in sgdisk sfdisk partx lsblk blockdev e2fsck resize2fs; do copy_exec "$(command -v "$tool")"; done
+for tool in sgdisk sfdisk partx lsblk findmnt blockdev e2fsck resize2fs; do copy_exec "$(command -v "$tool")"; done
 mkdir -p "$DESTDIR/scripts" "$DESTDIR/etc/armhpc"
 cp /usr/lib/armhpc-ota/resources/initramfs-armhpc "$DESTDIR/scripts/armhpc"
 chmod 755 "$DESTDIR/scripts/armhpc"

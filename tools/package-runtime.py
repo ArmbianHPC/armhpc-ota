@@ -9,7 +9,7 @@ def version(project):
 
 def source_files(project):
     selected=('src','boot','packaging','tools','docs','tests','windows','LICENSES','.github',
-              'README.md','LICENSE','COPYRIGHT','VERSION','THIRD-PARTY-NOTICES.md','pyproject.toml',
+              'README.md','README.zh-CN.md','LICENSE','COPYRIGHT','VERSION','THIRD-PARTY-NOTICES.md','pyproject.toml',
               'MANIFEST.in','LICENSE-MAP.json','REUSE.toml','global.json','DEPENDENCIES.lock.json','.gitignore','.gitattributes','CHANGELOG.md')
     for name in selected:
         base=project/name
