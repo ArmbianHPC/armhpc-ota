@@ -90,9 +90,13 @@ public sealed class SerialWire:IConsoleWire
     private readonly SerialPort port;
     public SerialWire(string name,int baud)
     {
-        if(!Regex.IsMatch(name,"^COM[1-9][0-9]*$",RegexOptions.IgnoreCase) || baud<1200 || baud>3000000)
-            throw new ArgumentException("请输入 COM 端口和有效波特率。");
-        port=new SerialPort(name,baud,Parity.None,8,StopBits.One){Encoding=Encoding.UTF8,Handshake=Handshake.None,DtrEnable=true,RtsEnable=true,ReadTimeout=200,WriteTimeout=30000};
+        bool valid=OperatingSystem.IsWindows()
+            ? Regex.IsMatch(name,"^COM[1-9][0-9]*$",RegexOptions.IgnoreCase)
+            : Regex.IsMatch(name,@"^/dev/(?:tty[A-Za-z][A-Za-z0-9]*|serial/by-(?:id|path)/[^/\s]+|pts/[0-9]+)$") && !name.Contains("..");
+        if(!valid || baud<1200 || baud>3000000)
+            throw new ArgumentException("请输入 COM 或 /dev/ttyACM0、/dev/ttyUSB0 等串口和有效波特率。");
+        bool modemLines=!name.StartsWith("/dev/pts/",StringComparison.Ordinal);
+        port=new SerialPort(name,baud,Parity.None,8,StopBits.One){Encoding=Encoding.UTF8,Handshake=Handshake.None,DtrEnable=modemLines,RtsEnable=modemLines,ReadTimeout=200,WriteTimeout=30000};
         port.Open();
     }
     public string Read()=>port.ReadExisting();

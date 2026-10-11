@@ -34,7 +34,8 @@ SSH keys: --key <private-key-path> [--passphrase-env <name>]. --remember uses Wi
 Trust: --hostkey-system SHA256:... --hostkey-rescue SHA256:... ; --ignore-fingerprint is an explicit per-operation override.
 Local package push uses SSH/SFTP or streaming USB COM, with the same signed receive/task engine.
 Full serial push needs agent 0.3.4; old agents accept the small signed maintenance first.
-Register --serial-reconnect COM8 to allow SSH -> COM takeover by persistent device ID.
+Linux serial ports use /dev/ttyACM0 or /dev/ttyUSB0.
+Register --serial-reconnect COM8 or /dev/ttyACM1 to allow SSH -> COM takeover by persistent device ID.
 Watchdog/BOOT commands use "command"; destructive diagnostics require one device and concurrency 1.
 Reboot / connection loss is observed by persistent device, maintenance and OTA job IDs.
 """;
