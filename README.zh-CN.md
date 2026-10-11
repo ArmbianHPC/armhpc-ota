@@ -40,6 +40,7 @@ armhpc-rescue ota recover --release current --target system --yes --json
 
 ## 文档
 
+- [Windows 安装](docs/INSTALLATION.zh-CN.md)
 - [Windows GUI／CLI](docs/WINDOWS.md)
 - [设备与批量命令](docs/DEVICE-MANAGEMENT.md)
 - [自动升级与重连](docs/AUTOMATIC-UPGRADE.md)

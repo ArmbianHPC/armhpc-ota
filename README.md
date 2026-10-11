@@ -40,6 +40,7 @@ System upgrades require a compatible system OTA package from [armbian-hpc](https
 
 ## Documentation
 
+- [Windows installation](docs/INSTALLATION.md)
 - [Windows GUI and CLI](docs/WINDOWS.md)
 - [Device and batch commands](docs/DEVICE-MANAGEMENT.md)
 - [Automatic upgrades and reconnection](docs/AUTOMATIC-UPGRADE.md)

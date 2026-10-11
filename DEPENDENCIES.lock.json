@@ -300,5 +300,14 @@
   "linux_controller_rids": [
     "linux-x64",
     "linux-arm64"
-  ]
+  ],
+  "windows_installer": {
+    "wix_version": "4.0.6",
+    "ui_extension_version": "4.0.6",
+    "ui_extension_sha256": "bbe4a8a9bf934ef1bf87a7cfb54aeeb6953be7313ecb800d2bbf3c403bf21361",
+    "ui_source": "https://codeload.github.com/wixtoolset/wix/tar.gz/refs/tags/v4.0.6",
+    "ui_source_sha256": "6374c3112890dc310723b95b170866eecac255e55678e5a6077fe3da35e4880b",
+    "license": "MS-RL",
+    "scope": "installer dialogs and path validation custom actions"
+  }
 }
