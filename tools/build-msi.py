@@ -39,12 +39,19 @@ def build(payload, output, work, wix, version):
     node(package, 'MediaTemplate', EmbedCab='yes', CompressionLevel='high')
     node(package, 'Property', Id='ARPCOMMENTS', Value='ARMHPC OTA GUI, CLI and signed maintenance')
     node(package, 'Property', Id='ARPURLINFOABOUT', Value='https://github.com/ArmbianHPC/armhpc-ota')
+    location = node(package, 'Property', Id='INSTALLFOLDER', Secure='yes')
+    node(location, 'RegistrySearch', Id='PreviousInstallDirectory', Root='HKCU',
+         Key='Software\\ARMHPC\\OTA\\Installer', Name='InstallDirectory', Type='raw')
     local = node(package, 'StandardDirectory', Id='LocalAppDataFolder')
     programs = node(local, 'Directory', Id='LocalPrograms', Name='Programs')
     manufacturer = node(programs, 'Directory', Id='ArmHpcPrograms', Name='ARMHPC')
     install = node(manufacturer, 'Directory', Id='INSTALLFOLDER', Name='OTA')
     directories = {'': install}
     feature = node(package, 'Feature', Id='Application', Title='ARMHPC OTA', Level='1')
+    saved = node(install, 'Component', Id='InstallDirectoryRecord', Guid=str(uuid.uuid5(uuid.UUID(UPGRADE), 'install-directory')))
+    node(saved, 'RegistryValue', Root='HKCU', Key='Software\\ARMHPC\\OTA\\Installer',
+         Name='InstallDirectory', Type='string', Value='[INSTALLFOLDER]', KeyPath='yes')
+    node(feature, 'ComponentRef', Id='InstallDirectoryRecord')
     files = []
     for path in sorted(payload.rglob('*')):
         if not path.is_file() or path.suffix in ('.pdb', '.pyc') or '__pycache__' in path.parts:
