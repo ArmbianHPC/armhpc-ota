@@ -2,23 +2,34 @@
 
 [简体中文](README.zh-CN.md)
 
-ARMHPC OTA **1.0.0** provides a dual-system update engine and desktop tools for managing ARMHPC devices.
+ARMHPC OTA **1.0.0** is a general update and device-management platform for ARM Linux systems. It combines a shared device engine with a Windows GUI and Windows/Linux controller CLIs.
+
+The update workflow is separated from board-specific storage and boot integration. WXY OEC Turbo (OECT) is the first integrated device; additional devices use their own board profiles and compatible firmware packages.
 
 ## Features
 
-- Windows GUI and CLI, plus a Linux controller CLI, upload local signed packages over SSH/SFTP or USB serial. The controller does not need a fixed IP address.
-- Select multiple devices, filter by hostname, inspect command results, and run operations with concurrency from 1 to 8.
-- Update the SATA system offline from Rescue. Update Rescue through the inactive A/B slot and confirm it after boot.
-- Verify Ed25519 signatures, SHA256 hashes, board, architecture, layout, and capacity before deployment.
-- Resume transfers and persistent tasks after a connection loss or reboot, with maintenance backups and rollback.
+- Upload local signed packages through SSH/SFTP or USB serial, without requiring a fixed controller IP address.
+- Manage multiple devices, filter by hostname, inspect command results, and run operations with concurrency from 1 to 8.
+- Replace the configured normal-system partition offline from Rescue. Update Rescue through its inactive A/B slot and confirm it after boot.
+- Verify Ed25519 signatures, SHA256 hashes, board, architecture, storage layout, and capacity before deployment.
+- Resume transfers and persistent tasks after connection loss or reboot, with maintenance backups and rollback.
 - Share clock recovery records across the normal system and Rescue A/B, with NTP synchronisation and ordered events.
-- Optional signed update feeds, HTTP/HTTPS file publishing, and package signing tools.
+- Publish optional signed update feeds and HTTP/HTTPS files, and prepare signed release and maintenance packages.
 
-The device engine requires Python 3.11 or later. Windows includes .NET 10 and an isolated Python publishing helper. The Linux controller archive includes x86_64 and ARM64 runtimes. Windows can store login credentials with DPAPI; Linux uses SSH keys or passwords entered locally.
+The device engine requires Python 3.11 or later and includes ARM64 and ARM32 runtime support. Windows includes .NET 10 and an isolated Python publishing helper. The Linux controller archive includes x86_64 and ARM64 runtimes. Windows can store login credentials with DPAPI; Linux uses SSH keys or passwords entered locally. Device compatibility is determined by its board profile and package manifest.
+
+## Project structure
+
+| Part | Responsibility |
+| --- | --- |
+| Device engine | Signature verification, downloads, persistent tasks, deployment, recovery, and tool maintenance. |
+| Controller tools | Device discovery, authentication, SSH/serial transport, batch commands, and reconnection. |
+| Publisher | Package signing and optional local file service. |
+| Firmware integration | Board profiles, boot handling, storage layout, and system payload generation in [armbian-hpc](https://github.com/ArmbianHPC/armbian-hpc). |
 
 ## Get started
 
-Download the packages from [Releases](https://github.com/ArmbianHPC/armhpc-ota/releases).
+Download the software from [Releases](https://github.com/ArmbianHPC/armhpc-ota/releases).
 
 | Package | Purpose |
 | --- | --- |
@@ -36,7 +47,7 @@ armhpc-rescue ota tools update --bundle /path/maintenance.tar.xz --yes --json
 armhpc-rescue ota recover --release current --target system --yes --json
 ```
 
-System upgrades require a compatible system OTA package from [armbian-hpc](https://github.com/ArmbianHPC/armbian-hpc). A maintenance package updates tools; it does not replace the system image.
+Choose a system OTA package that matches the device's board profile from [armbian-hpc](https://github.com/ArmbianHPC/armbian-hpc). A maintenance package updates tools; it does not replace the system image.
 
 ## Documentation
 
@@ -52,5 +63,3 @@ System upgrades require a compatible system OTA package from [armbian-hpc](https
 ## License
 
 Original code is licensed under **GPL-3.0-only**. Third-party components retain their licenses; see [LICENSE](LICENSE), [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), and the license materials included in each package.
-
-The OTA engine is maintained in this repository. Board integration and firmware builds are maintained separately in [armbian-hpc](https://github.com/ArmbianHPC/armbian-hpc).
