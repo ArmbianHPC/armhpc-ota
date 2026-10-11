@@ -10,7 +10,7 @@ static string Password()
     Console.Error.WriteLine();return value.ToString();
 }
 const string Help="""
-ARMHPC OTA controller 1.0.0 — Windows SSH / USB serial automation
+ARMHPC OTA controller 1.0.0 — SSH / USB serial automation
 
   ARMHPC-OTA-CLI command --ssh <IPv4> [--ssh <IPv4> ...] --command "armhpc ..."
       [--devices-csv <inventory.csv> | --all-managed] [--hostname <name>] [--exact-hostname]
@@ -26,12 +26,12 @@ ARMHPC OTA controller 1.0.0 — Windows SSH / USB serial automation
       [--allow-http] [--release <id>] [--target all|system|rescue]
       [--bundle <signed-maintenance.tar.xz>] [--ca <public-ca.pem>]
       [--scan-range <approved-cidr>] [--serial-reconnect COM9]
-      [--minimum-agent 0.3.0] [--yes] [--json]
+      [--minimum-agent 1.0.0] [--yes] [--json]
   ARMHPC-OTA-CLI resume --task <local-automation-id> [--bundle <same-hash-relocated-package>]
 
 Authentication: --username root; password is entered locally or read from --password-env <name>.
-SSH keys: --key <private-key-path> [--passphrase-env <name>]. --remember uses Windows DPAPI.
-Trust: --hostkey-system SHA256:... --hostkey-rescue SHA256:... ; never bypass SSH key checks.
+SSH keys: --key <private-key-path> [--passphrase-env <name>]. --remember uses Windows DPAPI; Linux uses SSH keys or interactive credentials.
+Trust: --hostkey-system SHA256:... --hostkey-rescue SHA256:... ; --ignore-fingerprint is an explicit per-operation override.
 Local package push uses SSH/SFTP or streaming USB COM, with the same signed receive/task engine.
 Full serial push needs agent 0.3.4; old agents accept the small signed maintenance first.
 Register --serial-reconnect COM8 to allow SSH -> COM takeover by persistent device ID.
@@ -55,6 +55,7 @@ try
         string value=flags.Contains(option)?"true":++i<args.Length?args[i]:throw new ArgumentException("参数缺少值："+option);
         if(!values.TryGetValue(option,out var list))values[option]=list=[];list.Add(value);
     }
+    if(Has("--remember") && !OperatingSystem.IsWindows())throw new ArgumentException("Linux 不保存登录密码；使用 SSH 私钥或每次输入凭据。");
     if(args[0]=="ports"){Emit(new{ports=SerialRunner.Ports()});return 0;}
     if(args[0] is not ("status" or "upgrade" or "tools-update" or "resume" or "boot-export"))throw new ArgumentException("未知操作；使用 --help。");
     var vault=new Vault();var devices=vault.LoadDevices().ToList();var tasks=vault.LoadAutomatic().ToList();

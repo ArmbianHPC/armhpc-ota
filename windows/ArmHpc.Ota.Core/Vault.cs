@@ -16,6 +16,7 @@ public sealed class Vault
     private string FileFor(string id) => Path.Combine(directory, Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(id))) + ".credentials");
     public void Save(string deviceId, Credentials credentials)
     {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Linux 不保存登录密码；使用 SSH 私钥或每次输入凭据。既有设备和任务记录仍可保存。");
         byte[] plaintext = JsonSerializer.SerializeToUtf8Bytes(credentials);
         try
         {
@@ -26,6 +27,7 @@ public sealed class Vault
     }
     public Credentials? Load(string deviceId)
     {
+        if (!OperatingSystem.IsWindows()) return null;
         if (!File.Exists(FileFor(deviceId))) return null;
         byte[] plaintext = ProtectedData.Unprotect(File.ReadAllBytes(FileFor(deviceId)), Entropy, DataProtectionScope.CurrentUser);
         try { return JsonSerializer.Deserialize<Credentials>(plaintext); }

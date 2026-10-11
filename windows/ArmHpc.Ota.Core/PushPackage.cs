@@ -9,9 +9,8 @@ public static class PushPackage
 {
     public static async Task<JsonElement> Inspect(string package,string? release,CancellationToken token)
     {
-        string python=Path.Combine(AppContext.BaseDirectory,"publisher/python.exe");
         string output=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"ARMHPC","OTA","packages");
-        var info=new ProcessStartInfo(python){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+        var info=PublisherRuntime.Create();
         foreach(string value in new[]{"-m","armhpc_ota.local_package","--package",package,"--output",output})info.ArgumentList.Add(value);
         if(release is not null){info.ArgumentList.Add("--release");info.ArgumentList.Add(release);}
         using var process=Process.Start(info)!;var stderr=process.StandardError.ReadToEndAsync(token);string text=await process.StandardOutput.ReadToEndAsync(token);await process.WaitForExitAsync(token);

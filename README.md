@@ -4,7 +4,7 @@ ARMHPC 双系统 OTA 引擎与 Windows 设备管理程序，版本 **1.0.0**。�
 
 ## 功能
 
-- Windows GUI／CLI 经 SSH/SFTP 或 USB 串口推送本地签名包，不要求电脑固定 IP。
+- Windows GUI／CLI 和 Linux 上位机 CLI 经 SSH/SFTP 或 USB 串口推送本地签名包，不要求电脑固定 IP。
 - 多选设备、主机名筛选、DPAPI 登录保存、SSH 身份管理、命令返回概况，并发 1–8。
 - 普通系统在 Rescue 中离线更新；Rescue 更新写入备用 A/B 槽，启动确认后提交。
 - 签名、SHA256、设备／架构／布局匹配、活动根保护、单写锁及写盘前取消。
@@ -16,7 +16,7 @@ ARMHPC 双系统 OTA 引擎与 Windows 设备管理程序，版本 **1.0.0**。�
 
 ## 使用
 
-解压 Windows ZIP，运行 `ARMHPC-OTA.exe`。CLI 为 `ARMHPC-OTA-CLI.exe --help`。
+Windows 使用 MSI 安装，启动菜单中的 ARMHPC OTA；CLI 为 `ARMHPC-OTA-CLI.exe --help`。Linux 解压 tar.gz 后运行 `./armhpc-ota-cli --help`，包含 x86_64 与 ARM64 运行时。
 正常系统使用 `armhpc ota`；Rescue 使用 `armhpc-rescue ota`。设备命令支持 `--json`，写入确认支持 `--yes`。
 
 ```sh

@@ -290,5 +290,15 @@
       "sha256": "e1447b78e0bf81e753a6567d840e4c94dd429165a47c4aede760d506339d4bc9",
       "source": "https://api.nuget.org/v3-flatcontainer/runtime.osx-x64.runtime.native.system.io.ports/10.0.0/runtime.osx-x64.runtime.native.system.io.ports.10.0.0.nupkg"
     }
+  ],
+  "installer_builder": {
+    "name": "wix",
+    "version": "4.0.6",
+    "sha256": "a94dd42ae1fb56b32da180e2173ceda4f0d10b4c8871c5ee59ecb502131a1eb6",
+    "url": "https://api.nuget.org/v3-flatcontainer/wix/4.0.6/wix.4.0.6.nupkg"
+  },
+  "linux_controller_rids": [
+    "linux-x64",
+    "linux-arm64"
   ]
 }

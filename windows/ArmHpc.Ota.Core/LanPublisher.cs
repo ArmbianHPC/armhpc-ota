@@ -11,9 +11,7 @@ public sealed class LanPublisher
     public string Configuration { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ARMHPC", "OTA", "publisher.json");
     public async Task<JsonElement> Publish(string operation, IReadOnlyList<string> arguments)
     {
-        string runtime=Path.Combine(AppContext.BaseDirectory,"publisher","python.exe");
-        if (!File.Exists(runtime)) throw new InvalidOperationException("便携包缺少 Python 发布运行时。");
-        var info=new ProcessStartInfo(runtime) {UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+        var info=PublisherRuntime.Create();
         info.ArgumentList.Add("-m");info.ArgumentList.Add("armhpc_ota.lan_publish");info.ArgumentList.Add(operation);
         foreach(string a in arguments)info.ArgumentList.Add(a);
         using var process=Process.Start(info)!;
@@ -23,6 +21,7 @@ public sealed class LanPublisher
     }
     public void Start(string root,string bind,int port,bool https,string? certificate,string password)
     {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("文件发布服务由 Windows 安装包提供。");
         Directory.CreateDirectory(Path.GetDirectoryName(Configuration)!);
         string? protectedPassword=string.IsNullOrEmpty(password)?null:Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(password),null,DataProtectionScope.CurrentUser));
         File.WriteAllText(Configuration,JsonSerializer.Serialize(new {root=Path.GetFullPath(root),bind,port,https,certificate,protectedPassword}));

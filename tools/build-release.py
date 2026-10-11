@@ -60,7 +60,7 @@ def build(args):
         project = repo / 'windows' / name / (name + '.csproj')
         with (work / (name + '-publish.txt')).open('w', encoding='utf-8') as log:
             for command in [['dotnet', 'restore', str(project), '-r', 'win-x64', '--locked-mode'],
-                            ['dotnet', 'publish', str(project), '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
+                            ['dotnet', 'publish', str(project), '-c', 'Release', '-f', 'net10.0-windows', '-r', 'win-x64', '--self-contained', 'true',
                              '--no-restore', '-o', str(dest)]]:
                 subprocess.run(command, cwd=repo, stdout=log, stderr=subprocess.STDOUT, check=True)
         print('Published ' + name, flush=True)

@@ -11,3 +11,13 @@
 软件 Release 提供 Windows ZIP、Linux runtime、签名 maintenance、两个对应源码附件、SHA256、依赖／许可清单和源码 commit。签名密钥、凭据、节点备份和系统 IMG 不进入软件源码包。
 
 系统包是独立输入，旧系统 release、签名清单与载荷不因软件版本改变而重签或覆盖。发布版本不可覆盖，修改内容需使用新的版本或 release ID。
+
+## Release 标题与附件
+
+标题固定为标签本身，例如 `v1.0.0`，以后使用 `v<版本号>`。
+手动上传的附件固定为三项：`armhpc-ota-<版本>-windows-x64.msi`、`armhpc-ota-<版本>-linux-cli.tar.gz`、`armhpc-ota-<版本>-maintenance.tar.xz`。
+许可证、依赖清单、使用说明和对应源码放入软件包内；校验值写在 Release 正文。本地构建记录不作为额外附件上传。
+
+`tools/build-msi.py` 生成当前用户的 Windows 安装包；`tools/build-linux-cli.py` 生成 Linux x86_64/ARM64 上位机 CLI。
+`tools/release-policy.py --tag v<版本> --directory <三个包目录>` 先预览，`--apply` 在新包哈希核验后删除额外附件并设置版本号标题。
+已发布的 maintenance 不重签、不覆盖；同名内容发生变化必须使用新版本。GitHub 自带的 Source code 链接由平台生成。

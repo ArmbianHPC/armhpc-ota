@@ -41,6 +41,7 @@ public static class CommandCli
             if(values.TryGetValue("--serial-reconnect",out var ports))foreach(var d in targets)d.SerialPorts=ports.ToArray();
             foreach(var d in targets)d.IgnoreFingerprint=Has("--ignore-fingerprint");
             if(Has("--ignore-fingerprint"))Console.Error.WriteLine("当前命令临时忽略 SSH 指纹；设备 ID 仍将核对。");
+            if(Has("--remember") && !OperatingSystem.IsWindows())throw new ArgumentException("Linux 不保存登录密码；使用 SSH 私钥或每次输入凭据。");
             Credentials? supplied=null;
             if(Has("--username") || Has("--password-env") || Has("--key"))
             {
