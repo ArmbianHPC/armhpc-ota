@@ -17,6 +17,9 @@ def update(repo, tag, directory, apply=False, notes=None):
     version = tag.removeprefix('v')
     if tag != 'v' + version or len(version.split('.')) != 3 or not all(x.isdigit() for x in version.split('.')):
         raise ValueError('Release tag must be vMAJOR.MINOR.PATCH')
+    notes = Path(notes) if notes else Path(__file__).resolve().parents[1] / 'docs/releases' / (tag + '.md')
+    if not notes.is_file():
+        raise ValueError('Provide the English release notes and their Simplified Chinese counterpart')
     paths = [Path(directory).resolve(strict=True) / name for name in files(version)]
     if not all(p.is_file() for p in paths):
         raise ValueError('All three packages must exist before editing the Release')

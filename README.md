@@ -1,23 +1,33 @@
 # ARMHPC OTA
 
-ARMHPC 双系统 OTA 引擎与 Windows 设备管理程序，版本 **1.0.0**。原创代码采用 GPL-3.0-only；第三方组件保留原许可证。
+[简体中文](README.zh-CN.md)
 
-## 功能
+ARMHPC OTA **1.0.0** provides a dual-system update engine and desktop tools for managing ARMHPC devices.
 
-- Windows GUI／CLI 和 Linux 上位机 CLI 经 SSH/SFTP 或 USB 串口推送本地签名包，不要求电脑固定 IP。
-- 多选设备、主机名筛选、DPAPI 登录保存、SSH 身份管理、命令返回概况，并发 1–8。
-- 普通系统在 Rescue 中离线更新；Rescue 更新写入备用 A/B 槽，启动确认后提交。
-- 签名、SHA256、设备／架构／布局匹配、活动根保护、单写锁及写盘前取消。
-- 持久任务、传输续传、重启重连、原请求继续、维护资源备份与回滚。
-- 共享时间恢复、NTP 校准、估计时间及事件序号，普通系统与 Rescue A/B 一致。
-- 可选签名索引拉取、内网 HTTP/HTTPS 文件服务和版本签名工具。
+## Features
 
-设备端使用 Python 3.11+；Windows 包包含 .NET 10 和独立 Python 发布助手。OECT 使用 SATA 64 GiB ext4 系统、其余 DATA，eMMC SquashFS Rescue A/B 与 ext4 共享区。ARM32 使用相同引擎接口及对应辅助程序，写盘操作由板卡适配限制。
+- Windows GUI and CLI, plus a Linux controller CLI, upload local signed packages over SSH/SFTP or USB serial. The controller does not need a fixed IP address.
+- Select multiple devices, filter by hostname, inspect command results, and run operations with concurrency from 1 to 8.
+- Update the SATA system offline from Rescue. Update Rescue through the inactive A/B slot and confirm it after boot.
+- Verify Ed25519 signatures, SHA256 hashes, board, architecture, layout, and capacity before deployment.
+- Resume transfers and persistent tasks after a connection loss or reboot, with maintenance backups and rollback.
+- Share clock recovery records across the normal system and Rescue A/B, with NTP synchronisation and ordered events.
+- Optional signed update feeds, HTTP/HTTPS file publishing, and package signing tools.
 
-## 使用
+The device engine requires Python 3.11 or later. Windows includes .NET 10 and an isolated Python publishing helper. The Linux controller archive includes x86_64 and ARM64 runtimes. Windows can store login credentials with DPAPI; Linux uses SSH keys or passwords entered locally.
 
-Windows 使用 MSI 安装，启动菜单中的 ARMHPC OTA；CLI 为 `ARMHPC-OTA-CLI.exe --help`。Linux 解压 tar.gz 后运行 `./armhpc-ota-cli --help`，包含 x86_64 与 ARM64 运行时。
-正常系统使用 `armhpc ota`；Rescue 使用 `armhpc-rescue ota`。设备命令支持 `--json`，写入确认支持 `--yes`。
+## Get started
+
+Download the packages from [Releases](https://github.com/ArmbianHPC/armhpc-ota/releases).
+
+| Package | Purpose |
+| --- | --- |
+| `armhpc-ota-<version>-windows-x64.msi` | Install the Windows GUI, CLI, publisher, and maintenance package. |
+| `armhpc-ota-<version>-linux-cli.tar.gz` | Extract and run `./armhpc-ota-cli --help` on a Linux controller. |
+| `armhpc-ota-<version>-maintenance.tar.xz` | Update OTA tools on existing devices. |
+
+On Windows, launch **ARMHPC OTA** from the Start menu or use `ARMHPC-OTA-CLI.exe --help`.
+On devices, use `armhpc ota` in the normal system and `armhpc-rescue ota` in Rescue.
 
 ```sh
 armhpc ota status --json
@@ -26,16 +36,20 @@ armhpc-rescue ota tools update --bundle /path/maintenance.tar.xz --yes --json
 armhpc-rescue ota recover --release current --target system --yes --json
 ```
 
-本地系统推送需另行选择兼容的系统 OTA 包，源码或工具维护包不能代替系统载荷。
+System upgrades require a compatible system OTA package from [armbian-hpc](https://github.com/ArmbianHPC/armbian-hpc). A maintenance package updates tools; it does not replace the system image.
 
-## 文档
+## Documentation
 
-- [Windows GUI／CLI](docs/WINDOWS.md)
-- [设备与批量命令](docs/DEVICE-MANAGEMENT.md)
-- [自动升级与重连](docs/AUTOMATIC-UPGRADE.md)
-- [签名发布](docs/RELEASES.md)
-- [软件构建](docs/BUILD.md)
-- [许可及对应源码](THIRD-PARTY-NOTICES.md)
-- [已知问题](docs/KNOWN-ISSUES.md)
+- [Windows GUI and CLI](docs/WINDOWS.md)
+- [Device and batch commands](docs/DEVICE-MANAGEMENT.md)
+- [Automatic upgrades and reconnection](docs/AUTOMATIC-UPGRADE.md)
+- [Signing and releases](docs/RELEASES.md)
+- [Building the software](docs/BUILD.md)
+- [v1.0.0 release notes](docs/releases/v1.0.0.md) / [简体中文](docs/releases/v1.0.0.zh-CN.md)
+- [Known issues](docs/KNOWN-ISSUES.md)
 
-框架源码为独立的 `armbian-hpc` 仓库。升级核心仅在本仓库维护。
+## License
+
+Original code is licensed under **GPL-3.0-only**. Third-party components retain their licenses; see [LICENSE](LICENSE), [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), and the license materials included in each package.
+
+The OTA engine is maintained in this repository. Board integration and firmware builds are maintained separately in [armbian-hpc](https://github.com/ArmbianHPC/armbian-hpc).
