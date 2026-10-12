@@ -31,6 +31,23 @@ POLICY = (
 )
 
 
+SYSTEM_POLICY = ('etc/hostname', 'etc/hosts')
+
+
+def policy(target='system'):
+    require(target in ('system', 'rescue', 'all'), 'preserve_target', 'Unknown preservation target')
+    return POLICY + (SYSTEM_POLICY if target in ('system', 'all') else ())
+
+
+def require_network_confirmed(root):
+    path = Path(root) / 'var/lib/armhpc/network-config/transaction.json'
+    if path.exists():
+        require(not path.is_symlink(), 'network_pending', 'Network transaction must not be a symbolic link')
+        value = read_json(path)
+        require(value.get('stage') in ('confirmed', 'rolled-back', 'failed'),
+                'network_pending', 'Confirm or roll back the pending network configuration before OTA or tool maintenance')
+
+
 def records(root, filename):
     path = Path(root) / 'etc' / filename
     return [line.split(':') for line in path.read_text().splitlines() if line and not line.startswith('#')] if path.exists() else []

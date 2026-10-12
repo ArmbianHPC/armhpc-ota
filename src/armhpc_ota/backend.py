@@ -183,10 +183,13 @@ class Backend:
         run('e2fsck', '-f', '-p', path, accepted=(0, 1))
 
     def preserve(self, job, root, target='system'):
+        if target == 'system':
+            preserve.require_network_confirmed(root)
         destination = self.config.cache.parent / 'jobs' / job['job_id'] / ('preserved-' + target)
         inventory = preserve.snapshot(root, destination, job['manifest'].get('packages', {}).get(target, []),
                                       simulate=bool(self.config.simulate),
-                                      extra=('usr/share/armhpc/factory',) if target == 'rescue' and self.config.board().get('rescue_fstype') != 'squashfs' else ())
+                                      extra=preserve.SYSTEM_POLICY if target == 'system' else
+                                      (('usr/share/armhpc/factory',) if self.config.board().get('rescue_fstype') != 'squashfs' else ()))
         if inventory['packages'] and not self.config.simulate:
             packages = destination / 'debs'
             packages.mkdir(exist_ok=True)

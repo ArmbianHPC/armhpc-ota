@@ -193,7 +193,9 @@ class Engine:
                                   for item in device['blocks'] if item['type'] == 'disk'},
                 'required_download_bytes': downloads, 'validation_scratch_bytes': scratch, 'free_bytes': free,
                 'recovery_storage_bytes': baseline_needed + boot_needed,
-                'preserve': list(__import__('armhpc_ota.preserve', fromlist=['POLICY']).POLICY),
+                'preserve': list(__import__('armhpc_ota.preserve', fromlist=['policy']).policy(target)),
+                'preserve_by_target': {name: list(__import__('armhpc_ota.preserve', fromlist=['policy']).policy(name))
+                                       for name in ('system', 'rescue') if target in (name, 'all')},
                 'steps': ['download and verify', 'prepare configuration/software resources', 'reboot to confirmed Rescue',
                           'write and trial inactive Rescue' if target in ('rescue', 'all') else 'keep confirmed Rescue',
                           'write offline SATA root and trial normal OS' if target in ('system', 'all') else 'confirm Rescue',
@@ -301,6 +303,9 @@ class Engine:
                 from .maintenance import require_complete
                 require_complete(self.config)
                 device = discover(self.config)
+                if device['mode'] == 'system':
+                    from .preserve import require_network_confirmed
+                    require_network_confirmed(self.config.simulate / 'roots/system' if self.config.simulate else Path('/'))
                 if not self.config.simulate:
                     journal = self.config.state / 'bootstrap.json'
                     require(journal.is_file() and read_json(journal).get('complete') is True,

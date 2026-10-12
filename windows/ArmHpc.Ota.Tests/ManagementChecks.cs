@@ -33,6 +33,23 @@ public static class ManagementChecks
         check(!ArmHpcCommands.Parse("armhpc-rescue install --disk /dev/sda").Writes,"SATA install preview does not write disks");
         check(ArmHpcCommands.Parse("armhpc-rescue install --disk /dev/sda --execute").Interactive,"actual factory installation requires an interactive terminal");
         check(ArmHpcCommands.Parse("armhpc-kube configuration").Interactive && !ArmHpcCommands.Parse("armhpc-kube configuration --help").Interactive,"configuration uses TTY while its help remains batch-readable");
+        var identify=ArmHpcCommands.Parse("armhpc identify --interface eth0 --seconds 45 --period-ms 1000 --json");
+        check(identify.Writes && !identify.Reboots && !identify.Interactive && identify.Build("rescue",true).Contains("armhpc-rescue 'identify'"),"network identification routes through the same normal and Rescue command groups");
+        check(ArmHpcCommands.Parse("armhpc identify --status --json").Writes==false && ArmHpcCommands.Parse("armhpc-rescue identify --stop --json").Writes,"identification status is read-only and stopping retains write confirmation");
+        foreach(string command in new[]{"armhpc identify --worker private","armhpc identify --seconds 0","armhpc identify --seconds 601","armhpc identify --period-ms 100","armhpc identify --interface ../eth0","armhpc identify --status --stop","armhpc identify --seconds 30 --seconds 40"})
+            refused(()=>ArmHpcCommands.Parse(command),"invalid or internal identification options rejected");
+        var host=ArmHpcCommands.Parse("armhpc hostname set compute-07 --json");
+        check(host.Writes && !host.Interactive && host.Arguments.Contains("--yes") && !host.Reboots,"hostname writes use GUI confirmation and do not reboot");
+        check(!ArmHpcCommands.Parse("armhpc hostname --json").Writes && !ArmHpcCommands.Parse("armhpc network show --json").Writes,"hostname and network state remain read-only");
+        check(ArmHpcCommands.Parse("armhpc hostname configure").Interactive && ArmHpcCommands.Parse("armhpc network configure").Interactive,"guided configuration requires an interactive terminal");
+        var net=ArmHpcCommands.Parse("armhpc network set --interface eth0 --address 192.168.1.20/24 --gateway 192.168.1.1 --dns 1.1.1.1 --dns 8.8.8.8 --json");
+        check(net.Writes && net.Arguments.Contains("--yes") && !net.Reboots,"guarded network changes can run through the command panel");
+        check(!ArmHpcCommands.Parse("armhpc network set --dhcp --plan --json").Writes,"network plan does not modify files");
+        check(ArmHpcCommands.Parse("armhpc network confirm --transaction 00112233-4455-6677-8899-aabbccddeeff --json").Writes,"network confirmation is a write operation");
+        foreach(string input in new[]{"armhpc hostname set ../node","armhpc hostname set armbian","armhpc hostname _service", "armhpc network set --dhcp --address 192.168.1.9/24", "armhpc network set", "armhpc network set --dhcp --rollback-after 1", "armhpc network set --dhcp --interface ../eth0", "armhpc network confirm --transaction bad", "armhpc network set --dhcp --rootfs /", "armhpc network _service"})
+            refused(()=>ArmHpcCommands.Parse(input),"invalid and private host configuration parameters are rejected");
+        refused(()=>host.Build("rescue",false),"custom hostnames remain normal-system-only");
+        refused(()=>net.Build("rescue",false),"normal network configuration is not translated to Rescue");
         var quoted=ArmHpcCommands.Parse("armhpc led --error 'literal $(touch /tmp/bad); test'");
         check(quoted.Build("system",false).EndsWith(Commands.Quote("literal $(touch /tmp/bad); test")),"quoted command values are passed as literal arguments");
         foreach(string input in new[]{"rm -rf /","armhpc --help; reboot","armhpc ota _service worker","armhpc ota status --simulate-root /","armhpc ota status --watch","armhpc led --error 'unfinished"})refused(()=>ArmHpcCommands.Parse(input),"unsafe or unsupported command rejected");

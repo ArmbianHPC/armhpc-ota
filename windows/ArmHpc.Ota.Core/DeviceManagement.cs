@@ -34,7 +34,7 @@ public sealed record ArmHpcRequest(string Program,string[] Arguments,bool Writes
         {
             program="armhpc-rescue";
             if(args.FirstOrDefault()=="rescue")args[0]="boot";
-            else if(args.Length>0 && args[0] is not ("watchdog" or "ota" or "usb-console" or "led" or "configuration" or "reboot" or "--help" or "-h"))
+            else if(args.Length>0 && args[0] is not ("watchdog" or "ota" or "usb-console" or "led" or "identify" or "configuration" or "reboot" or "--help" or "-h"))
                 throw new ArgumentException("该命令仅适用于正常系统。");
         }
         if(program=="armhpc-rescue" && mode!="rescue")throw new ArgumentException("该命令需要设备先进入 Rescue。");
@@ -53,12 +53,16 @@ public static class ArmHpcCommands
 {
     public static IReadOnlyList<CommandPreset> Presets {get;} = [
         new("看门狗状态","armhpc watchdog status --json"),new("看门狗实验报告","armhpc watchdog report --json"),new("BOOT 维护状态","armhpc ota boot status --json"),
+        new("主机名","armhpc hostname show --json"),new("网络配置和事务","armhpc network show --json"),
+        new("主机名向导","armhpc hostname configure"),new("网络配置向导","armhpc network configure"),
         new("ARMHPC 帮助","armhpc --help"),new("OTA 状态和版本","armhpc ota status --json"),
         new("OTA 任务日志","armhpc ota logs --json"),new("OTA 工具一致性","armhpc ota tools status --json"),
         new("OTA 诊断","armhpc ota doctor --json"),new("OTA 接入预览","armhpc ota bootstrap --json"),
         new("本地初始系统恢复计划","armhpc ota plan --release initial --target system --recovery --json"),
         new("OTG 串口状态","armhpc usb-console status --json"),new("当前内核启动日志","armhpc usb-console logs"),
         new("上次内核启动日志","armhpc usb-console logs --previous"),new("RGB 状态","armhpc led --status"),
+        new("网口绿灯定位（30 秒）","armhpc identify --seconds 30 --json"),new("停止网口定位","armhpc identify --stop --json"),
+        new("网口定位状态","armhpc identify --status --json"),
         new("开启蓝色心跳","armhpc led --heartbeat on"),new("关闭蓝色心跳","armhpc led --heartbeat off"),
         new("请求下一次进入 Rescue","armhpc rescue"),new("进入 Rescue 并重启","armhpc rescue --reboot"),
         new("取消 Rescue 启动请求","armhpc rescue --cancel"),new("正常重启设备","armhpc reboot"),
@@ -66,6 +70,46 @@ public static class ArmHpcCommands
         new("Rescue SATA 恢复预览","armhpc-rescue restore --disk /dev/sda"),new("K3s 检查","armhpc-kube check"),
         new("普通系统配置向导","armhpc configuration"),new("Rescue 配置向导","armhpc-rescue configuration"),
         new("K3s 配置向导","armhpc-kube configuration")];
+
+    private static void ValidateHostSettings(string command,string[] args)
+    {
+        string action=args.ElementAtOrDefault(1) is { } value && !value.StartsWith("--")?value:"show";
+        string[] operations=command=="hostname"?["show","set","configure"]:["show","set","configure","confirm","rollback"];
+        if(!operations.Contains(action))throw new ArgumentException("未知主机名或网络配置操作。");
+        int start=action==args.ElementAtOrDefault(1)?2:1;
+        if(command=="hostname")
+        {
+            if(action=="set")
+            {
+                string name=args.ElementAtOrDefault(start++)??"";
+                if(name.Length is <1 or >64 || name.Split('.').Any(label=>!Regex.IsMatch(label,@"\A[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\z")) ||
+                   new[]{"armbian","armhpc","localhost","localhost.localdomain"}.Contains(name.ToLowerInvariant()))throw new ArgumentException("主机名格式无效或为保留名称。");
+            }
+            if(args.Skip(start).Any(option=>option is not ("--json" or "--yes")))throw new ArgumentException("未知主机名配置参数。");
+            return;
+        }
+        var seen=new HashSet<string>();
+        for(int index=start;index<args.Length;index++)
+        {
+            string option=args[index];
+            if(!seen.Add(option) && option!="--dns")throw new ArgumentException("网络配置参数不可重复。");
+            if(option is "--json" or "--yes")continue;
+            if(option is "--dhcp" or "--plan")
+            {
+                if(action!="set")throw new ArgumentException("此网络参数仅用于 set。");
+                continue;
+            }
+            if(option is not ("--interface" or "--address" or "--gateway" or "--dns" or "--rollback-after" or "--transaction") || ++index>=args.Length || args[index].StartsWith("--"))
+                throw new ArgumentException("未知网络配置参数或缺少值。");
+            if(option=="--interface" && (!Regex.IsMatch(args[index],@"\A[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}\z") || args[index]=="lo"))throw new ArgumentException("网口名称无效。");
+            if(option=="--transaction" && (action is not ("confirm" or "rollback") || !Guid.TryParse(args[index],out _)))throw new ArgumentException("确认或回滚需要有效事务 ID。");
+            if(option=="--rollback-after" && (action is not ("set" or "configure") || !int.TryParse(args[index],out int seconds) || seconds<30 || seconds>600))throw new ArgumentException("回滚确认时间为 30–600 秒。");
+            if(option is "--address" or "--gateway" or "--dns" && action!="set")throw new ArgumentException("地址参数仅用于 set。");
+            if(option=="--interface" && action is "confirm" or "rollback")throw new ArgumentException("事务已绑定网口，无需另行指定。");
+        }
+        if(action=="set" && seen.Contains("--dhcp")==seen.Contains("--address"))throw new ArgumentException("请选择 DHCP 或静态 IPv4 地址。");
+        if(seen.Contains("--gateway") && !seen.Contains("--address"))throw new ArgumentException("静态网关需要静态地址。");
+    }
 
     public static ArmHpcRequest Parse(string text)
     {
@@ -83,23 +127,42 @@ public static class ArmHpcCommands
         if(tokens.Count==0 || tokens[0] is not ("armhpc" or "armhpc-rescue" or "armhpc-kube"))throw new ArgumentException("命令必须以 armhpc、armhpc-rescue 或 armhpc-kube 开头。");
         string program=tokens[0];string[] args=tokens.Skip(1).ToArray();string first=args.FirstOrDefault()??"--help";
         if(args.Length==0)args=["--help"];
-        string[] allowed=program=="armhpc"?["--help","-h","watchdog","ota","usb-console","led","rescue","reboot","configuration","firstrun"]:
+        string[] allowed=program=="armhpc"?["--help","-h","watchdog","ota","usb-console","led","identify","hostname","network","rescue","reboot","configuration","firstrun"]:
             program=="armhpc-kube"?["--help","-h","configuration","check"]:
-            ["--help","-h","watchdog","ota","usb-console","led","boot","status","install","restore","reboot","configuration","console","provision","firstrun"];
+            ["--help","-h","watchdog","ota","usb-console","led","identify","boot","status","install","restore","reboot","configuration","console","provision","firstrun"];
         if(!allowed.Contains(first))throw new ArgumentException("未知 ARMHPC 子命令。");
-        if(args.Contains("--daemon") || args.Contains("--watch") || args.Contains("--simulate-root") || args.Contains("--config"))throw new ArgumentException("持续观察请使用任务面板；不允许服务内部或配置重定向参数。");
+        if(args.Contains("--daemon") || args.Contains("--watch") || args.Contains("--simulate-root") || args.Contains("--config") || args.Contains("--worker"))throw new ArgumentException("持续观察请使用任务面板；不允许服务内部或配置重定向参数。");
         bool help=args.Contains("--help") || args.Contains("-h");
         if(first=="ota" && !help)
         {
             string op=args.ElementAtOrDefault(1)??"";
             if(!new[]{"bootstrap","check","plan","download","apply","status","logs","cancel","recover","source","doctor","retry","tools","receive","boot"}.Contains(op))throw new ArgumentException("未知 OTA 子命令。");
         }
-        bool writes=!help && (first=="watchdog" && (args.ElementAtOrDefault(1) is "prepare" or "test" || args.Contains("--confirm-recovered") || args.Contains("--manual-recovery") || args.Contains("--cancel-prepared")) || first is "configuration" or "firstrun" or "provision" or "reboot" or "rescue" or "boot" ||
-            first=="led" && !args.Contains("--status") || first=="usb-console" && args.Skip(1).Any(x=>x is "start" or "stop") ||
+        if(first=="identify" && !help)
+        {
+            var seen=new HashSet<string>();
+            for(int i=1;i<args.Length;i++)
+            {
+                string option=args[i];
+                if(!seen.Add(option))throw new ArgumentException("网口定位参数不可重复。");
+                if(option is "--json" or "--status" or "--stop")continue;
+                if(option is not ("--interface" or "--seconds" or "--period-ms") || ++i>=args.Length)throw new ArgumentException("未知网口定位参数或缺少值。");
+                if(option=="--interface")
+                {
+                    if(!Regex.IsMatch(args[i],@"\A[A-Za-z0-9_.:-]{1,15}\z") || args[i] is "." or "..")throw new ArgumentException("网口名称无效。");
+                }
+                else if(!int.TryParse(args[i],out int number) || (option=="--seconds" ? number<1 || number>600 : number<200 || number>5000))
+                    throw new ArgumentException("定位时间为 1–600 秒，亮灭周期为 200–5000 毫秒。");
+            }
+            if(seen.Contains("--stop") && seen.Contains("--status"))throw new ArgumentException("停止和查询不能同时使用。");
+        }
+        if(first is "hostname" or "network" && !help)ValidateHostSettings(first,args);
+        bool writes=!help && (first is "hostname" or "network" && args.ElementAtOrDefault(1) is "set" or "configure" or "confirm" or "rollback" && !args.Contains("--plan") || first=="watchdog" && (args.ElementAtOrDefault(1) is "prepare" or "test" || args.Contains("--confirm-recovered") || args.Contains("--manual-recovery") || args.Contains("--cancel-prepared")) || first is "configuration" or "firstrun" or "provision" or "reboot" or "rescue" or "boot" ||
+            first is "led" or "identify" && !args.Contains("--status") || first=="usb-console" && args.Skip(1).Any(x=>x is "start" or "stop") ||
             first is "install" or "restore" && args.Contains("--execute") ||
             first=="ota" && (args.ElementAtOrDefault(1)=="boot" && args.ElementAtOrDefault(2) is "apply" or "rollback" || args.ElementAtOrDefault(1) is "apply" or "recover" or "cancel" or "retry" or "receive" || args.ElementAtOrDefault(1)=="bootstrap" && args.Contains("--apply") || args.ElementAtOrDefault(1)=="source" && args.ElementAtOrDefault(2)=="set" || args.ElementAtOrDefault(1)=="tools" && args.ElementAtOrDefault(2)=="update"));
-        bool interactive=!help && (first is "configuration" or "firstrun" or "provision" or "console" || first is "install" or "restore" && args.Contains("--execute"));
-        if(first is "ota" or "watchdog" && writes && !args.Contains("--yes"))args=[..args,"--yes"];
+        bool interactive=!help && (first is "hostname" or "network" && args.ElementAtOrDefault(1)=="configure" || first is "configuration" or "firstrun" or "provision" or "console" || first is "install" or "restore" && args.Contains("--execute"));
+        if(first is "ota" or "watchdog" or "hostname" or "network" && writes && !interactive && !args.Contains("--yes"))args=[..args,"--yes"];
         return new(program,args,writes,interactive,first=="reboot" || args.Contains("--reboot"));
     }
 }

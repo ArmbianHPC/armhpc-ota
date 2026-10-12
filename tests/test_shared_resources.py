@@ -24,6 +24,12 @@ def add_resources(payload):
         rows.append({'scope': scope, 'target': 'usr/lib/armhpc/' + name + '.py',
                      'source': source.relative_to(payload).as_posix(),
                      'sha256': hashlib.sha256(source.read_bytes()).hexdigest()})
+    for target in sorted(shared_resources.COMPLETION_TARGETS):
+        source = payload / 'compat/framework/completion' / target
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text('# signed completion resource\n', encoding='utf-8')
+        rows.append({'scope': 'common', 'target': target, 'source': source.relative_to(payload).as_posix(),
+                     'sha256': hashlib.sha256(source.read_bytes()).hexdigest()})
     atomic_json(payload / 'compat/framework-files.json', {'protocol': 1, 'files': rows})
     return rows
 
@@ -44,6 +50,29 @@ class SharedResourcesTests(unittest.TestCase):
         self.assertNotIn('usr/lib/armhpc/kube_setup.py', rescue)
         self.assertIn('usr/lib/armhpc/phy_leds.py', normal)
         self.assertIn('usr/lib/armhpc/clock_floor.py', rescue)
+
+    def test_completion_resources_are_shared_and_have_exact_allowed_targets(self):
+        for role in ('system', 'rescue_a', 'rescue_b'):
+            selected = shared_resources.files(self.payload, role)
+            self.assertTrue(shared_resources.COMPLETION_TARGETS.issubset(selected))
+        for target in ('etc/profile.d/other.sh', 'usr/lib/armhpc/other.bash',
+                       'usr/share/bash-completion/completions/other'):
+            rows = json.loads(json.dumps(self.rows))
+            rows[-1]['target'] = target
+            atomic_json(self.payload / 'compat/framework-files.json', {'protocol': 1, 'files': rows})
+            with self.subTest(target=target), self.assertRaises(OTAError):
+                shared_resources.files(self.payload, 'system')
+
+    def test_completion_hash_and_common_scope_are_required(self):
+        rows = json.loads(json.dumps(self.rows))
+        rows[-1]['scope'] = 'normal'
+        atomic_json(self.payload / 'compat/framework-files.json', {'protocol': 1, 'files': rows})
+        with self.assertRaises(OTAError):
+            shared_resources.files(self.payload, 'system')
+        atomic_json(self.payload / 'compat/framework-files.json', {'protocol': 1, 'files': self.rows})
+        (self.payload / self.rows[-1]['source']).write_text('changed')
+        with self.assertRaises(OTAError):
+            shared_resources.files(self.payload, 'system')
 
     def test_damaged_resource_is_refused(self):
         (self.payload / self.rows[1]['source']).write_text('changed', encoding='utf-8')
@@ -90,6 +119,10 @@ class SharedMaintenanceTests(unittest.TestCase):
             p = root / 'usr/lib/armhpc' / (name + '.py')
             self.assertTrue(p.is_file())
             self.assertFalse((root / 'usr/lib/armhpc' / (other + '.py')).exists())
+            for target in shared_resources.COMPLETION_TARGETS:
+                completion = root / target
+                self.assertEqual(completion.read_text(), '# signed completion resource\n')
+                completion.write_text('# old completion')
             if role.startswith('rescue'):
                 marker = root / 'etc/armhpc/rescue-environment'
                 marker.parent.mkdir(parents=True, exist_ok=True)
@@ -98,9 +131,29 @@ class SharedMaintenanceTests(unittest.TestCase):
             (root / 'usr/lib/armhpc-ota/armhpc_ota/__init__.py').write_text('__version__="0.2.0"\n', encoding='utf-8')
             maintenance.retain_installed_runtime(self.c, root)
             self.assertIn('signed', p.read_text(encoding='utf-8'))
+            for target in shared_resources.COMPLETION_TARGETS:
+                self.assertEqual((root / target).read_text(), '# signed completion resource\n')
         maintenance.schedule(self.e, rollback=True)
         self.assertEqual('rolled-back', maintenance.worker(self.e)['maintenance']['stage'])
         self.assertFalse((self.root / 'roots/system/usr/lib/armhpc/kube_setup.py').exists())
+        for role in ('system', 'rescue_a', 'rescue_b'):
+            for target in shared_resources.COMPLETION_TARGETS:
+                self.assertFalse((self.root / 'roots' / role / target).exists())
+
+    def test_existing_completion_content_and_mode_are_restored_on_rollback(self):
+        for role in ('system', 'rescue_a', 'rescue_b'):
+            path = self.root / 'roots' / role / 'etc/profile.d/armhpc-completion.sh'
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('previous completion\n')
+            path.chmod(0o600)
+        maintenance.schedule(self.e, self.bundle)
+        self.assertEqual('succeeded', maintenance.worker(self.e)['maintenance']['stage'])
+        maintenance.schedule(self.e, rollback=True)
+        self.assertEqual('rolled-back', maintenance.worker(self.e)['maintenance']['stage'])
+        for role in ('system', 'rescue_a', 'rescue_b'):
+            path = self.root / 'roots' / role / 'etc/profile.d/armhpc-completion.sh'
+            self.assertEqual(path.read_text(), 'previous completion\n')
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
     def test_symlink_target_parent_never_writes_outside_root(self):
         root = self.root / 'roots/rescue_a'

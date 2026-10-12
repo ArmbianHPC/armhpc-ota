@@ -39,6 +39,20 @@ def framework_files(framework):
         path=frame/'LICENSES'/(name+'.txt')
         rows.append((path,{'scope':'common','target':'usr/share/doc/armhpc-framework/'+name+'.txt',
                     'source':'compat/framework/licenses/'+name+'.txt','sha256':digest(path)}))
+    completion_targets = (
+        'usr/lib/armhpc/completion.bash',
+        'etc/profile.d/armhpc-completion.sh',
+        'usr/share/bash-completion/completions/armhpc',
+        'usr/share/bash-completion/completions/armhpc-rescue',
+        'usr/share/bash-completion/completions/armhpc-kube',
+    )
+    overlay=frame/'components/common/rootfs-overlay'
+    if any((overlay/name).exists() for name in completion_targets):
+        for name in completion_targets:
+            path=overlay/name
+            if not path.is_file() or path.is_symlink():raise ValueError('Missing or unsafe completion resource: '+name)
+            rows.append((path,{'scope':'common','target':name,
+                              'source':'compat/framework/completion/'+name,'sha256':digest(path)}))
     return rows
 
 def provenance(project):

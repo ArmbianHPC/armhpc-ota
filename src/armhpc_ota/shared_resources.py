@@ -4,6 +4,14 @@ from pathlib import Path, PurePosixPath
 from .errors import require
 from .io import read_json, sha256
 
+COMPLETION_TARGETS = frozenset((
+    'usr/lib/armhpc/completion.bash',
+    'etc/profile.d/armhpc-completion.sh',
+    'usr/share/bash-completion/completions/armhpc',
+    'usr/share/bash-completion/completions/armhpc-rescue',
+    'usr/share/bash-completion/completions/armhpc-kube',
+))
+
 def files(payload, role=None):
     root=Path(payload); manifest=root/'compat/framework-files.json'
     if not manifest.is_file():return {}
@@ -17,9 +25,11 @@ def files(payload, role=None):
                 'framework_resources','Unsafe framework resource path')
         library=relative.parts[:3]==('usr','lib','armhpc') and len(relative.parts)==4 and relative.suffix=='.py'
         notice=relative.parts[:4]==('usr','share','doc','armhpc-framework') and len(relative.parts)==5 and relative.suffix=='.txt'
-        require(library or notice,'framework_resources','Framework resource is not code or a license')
+        completion=item['target'] in COMPLETION_TARGETS
+        require(library or notice or completion,'framework_resources','Framework resource is not code, completion or a license')
         require(item['target'] not in names,'framework_resources','Duplicate framework target');names.add(item['target'])
         scope=item.get('scope');require(scope in ('common','board','rescue','normal'),'framework_resources','Unknown framework scope')
+        require(not completion or scope=='common','framework_resources','Completion resources must be shared by both environments')
         source=root.joinpath(*source_name.parts)
         require(source_name.parts[:2]==('compat','framework') and source.is_file() and not source.is_symlink() and
                 source.resolve().is_relative_to(root.resolve()) and sha256(source)==item['sha256'],

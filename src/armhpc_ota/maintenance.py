@@ -141,6 +141,8 @@ def schedule(engine, bundle=None, rollback=False, request_id=None):
         from .watchdog import require_idle as watchdog_idle
         from .boot_maintenance import require_idle as boot_idle
         watchdog_idle(c); boot_idle(c)
+        from .preserve import require_network_confirmed
+        require_network_confirmed(c.simulate / 'roots/system' if c.simulate else Path('/'))
         job = engine.store.read()
         require(not job or job['stage'] in TERMINAL, 'job_active', 'Finish the OTA task before tool maintenance')
         device = discover(c); storage = layout(c, device, initialized=True); engine._require_shared_mount(storage)
@@ -218,6 +220,9 @@ def runtime_files(payload, architecture, role=None):
 
 def backup_and_install(engine, task, role, root, files):
     c = engine.config
+    if role == 'system':
+        from .preserve import require_network_confirmed
+        require_network_confirmed(root)
     backup = c.state / 'maintenance/backups' / task['task_id'] / role
     inventory = backup/'files.json'
     has_clock = 'etc/systemd/system/armhpc-clock-floor.service' in files
@@ -245,7 +250,8 @@ def backup_and_install(engine, task, role, root, files):
             else: target.unlink(missing_ok=True)
     else:
         # Per-file atomic replacement, version marker last; isolated worker survives interruption.
-        for relative, source in sorted(files.items(), key=lambda pair: pair[0].endswith('armhpc_ota/__init__.py')):
+        for relative, source in sorted(files.items(), key=lambda pair: 2 if pair[0].endswith('armhpc_ota/__init__.py') else
+                                       1 if pair[0] in ('usr/lib/armhpc/cli.py', 'usr/lib/armhpc/firstboot.py', 'usr/lib/armhpc/configuration.py') else 0):
             target = root/relative
             require(not any(p.is_symlink() for p in [target, *target.parents] if p != root and p.is_relative_to(root)), 'tools_path', 'Runtime target or parent is a symbolic link')
             atomic_copy(source, target, 0o755 if relative.endswith('watchdog-guard') else 0o644)
