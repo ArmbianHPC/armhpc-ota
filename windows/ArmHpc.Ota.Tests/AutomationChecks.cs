@@ -70,6 +70,15 @@ public static class AutomationChecks
             var interrupt=new FakeUpgrade{Version="0.2.0",DropBeforePersist=true};
             await AutomaticUpgrade.Run(current,interrupt,_=>{},_=>{},delay:_=>Task.CompletedTask,maintenancePolls:5,jobPolls:5);
             check(interrupt.Installs==2 && interrupt.InstallIds.Distinct().Count()==1,"lost pre-persistence maintenance submission retries the same signed request ID");
+            var historic=new FakeUpgrade{Version="0.3.5",DropBeforePersist=true,HistoricalMaintenance=true};
+            result=await AutomaticUpgrade.Run(current,historic,_=>{},_=>{},delay:_=>Task.CompletedTask,maintenancePolls:5,jobPolls:5);
+            check(result.Stage=="succeeded" && historic.Installs==2 && historic.InstallIds.Distinct().Single()==current.MaintenanceId,"an old completed maintenance record permits observation and retry of the same new request after a lost reply");
+            var warningReply=new FakeUpgrade{Version="0.3.5",LoseInstallReply=true,InstallReplyWarning="Warning: pending reboot"};
+            result=await AutomaticUpgrade.Run(current,warningReply,_=>{},_=>{},delay:_=>Task.CompletedTask,maintenancePolls:5,jobPolls:5);
+            check(result.Stage=="succeeded" && warningReply.Installs==1 && warningReply.MaintenanceId==current.MaintenanceId,"maintenance warning without JSON observes the original persisted request without duplicate installation");
+            var busyHistoric=new FakeUpgrade{Version="0.3.5",DropBeforePersist=true,HistoricalMaintenance=true,HistoricalStage="installing"};
+            bool activeRefused=false;try{await AutomaticUpgrade.Run(current,busyHistoric,_=>{},_=>{},delay:_=>Task.CompletedTask,maintenancePolls:5,jobPolls:5);}catch(InvalidOperationException){activeRefused=true;}
+            check(activeRefused && busyHistoric.Installs==0 && busyHistoric.Applies==0,"another active maintenance ID still refuses all new submissions");
             var higher=new FakeUpgrade{Minimum="1.1.0",InstalledVersion="1.1.0"};
             await AutomaticUpgrade.Run(AutomaticTask.Create("device",Options()),higher,_=>{},_=>{},delay:_=>Task.CompletedTask,maintenancePolls:5,jobPolls:5);
             check(higher.Installs==1 && higher.Version=="1.1.0" && higher.Applies==1,"signed index can require a newer agent and trigger supplied tool maintenance");
@@ -134,6 +143,8 @@ public static class AutomationChecks
         public string Version="1.0.0",InstalledVersion="1.0.0",Minimum="0.3.0",Identity="device",JobStage="succeeded";
         public string? MaintenanceId,JobId;public int Installs,Applies,Sources,Pushes;public List<string> InstallIds=[],PushIds=[];
         public bool LoseInstallReply,LoseApplyReply,DropBeforePersist,BlockCliUntilMaintenance,LosePushReply,LocalOnlyApply,WriteAllowed=true,PushComplete=true;
+        public bool HistoricalMaintenance;public string HistoricalStage="succeeded";
+        public string? InstallReplyWarning;
         public Task<JsonElement> Command(string command,IReadOnlyList<string> arguments,bool yes,CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
@@ -158,14 +169,19 @@ public static class AutomationChecks
         public Task<JsonElement> Maintenance(CancellationToken token)
         {
             if(MaintenanceId is not null){Version=InstalledVersion;BlockCliUntilMaintenance=false;}
-            return Task.FromResult(J(new{device_id=Identity,mode="rescue",maintenance=MaintenanceId is null?null:new{task_id=MaintenanceId,stage="succeeded"}}));
+            return Task.FromResult(J(new{device_id=Identity,mode="rescue",maintenance=MaintenanceId is null?(HistoricalMaintenance?new{task_id="previous-completed",stage=HistoricalStage}:null):new{task_id=MaintenanceId,stage="succeeded"}}));
         }
         public Task<JsonElement> Install(string bundle,string requestId,CancellationToken token)
         {
             Installs++;InstallIds.Add(requestId);
             if(DropBeforePersist){DropBeforePersist=false;throw new TransientConnectionException("lost before persistence");}
             MaintenanceId=requestId;
-            if(LoseInstallReply){LoseInstallReply=false;throw new TransientConnectionException("lost install reply");}
+            if(LoseInstallReply)
+            {
+                LoseInstallReply=false;
+                if(InstallReplyWarning is not null)return Task.FromResult(SshRunner.DecodeMaintenanceReply("",InstallReplyWarning,0));
+                throw new TransientConnectionException("lost install reply");
+            }
             return Maintenance(token);
         }
         public Task<JsonElement> StagePackage(string package,string? release,string target,string requestId,Action<string> log,CancellationToken token)

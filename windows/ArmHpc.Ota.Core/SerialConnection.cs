@@ -236,8 +236,15 @@ public sealed partial class SerialRunner(Func<Device,IConsoleWire>? wireFactory=
         {
             var identity=await Query(session,Commands.Build("status",[],credentials.Username!="root"),token,TimeSpan.FromSeconds(30));ConsoleProtocol.VerifyIdentity(device,identity);
             var host=await session.Run(SshRunner.HostnameCommand,TimeSpan.FromSeconds(8),token);
-            var result=operation=="status" && arguments.Count==0?identity:await Query(session,Commands.Build(operation,arguments,credentials.Username!="root",yes),token,operation is "status" or "logs"?TimeSpan.FromSeconds(30):TimeSpan.FromMinutes(30));
-            return new RemoteResult(result,"",Protocol.Text(identity,"mode"),host.ExitCode==0?host.Output.Trim():"");
+            NetworkSnapshot? network=null;
+            if(operation=="status")
+            {
+                var metadata=await session.Run(NetworkMetadata.Command,TimeSpan.FromSeconds(8),token);
+                if(metadata.ExitCode==0)network=NetworkMetadata.Parse(metadata.Output);
+            }
+            string hostname=host.ExitCode==0?host.Output.Trim():"";
+            var result=operation=="status" && arguments.Count==0?(network?.Merge(identity,hostname)??identity):await Query(session,Commands.Build(operation,arguments,credentials.Username!="root",yes),token,operation is "status" or "logs"?TimeSpan.FromSeconds(30):TimeSpan.FromMinutes(30));
+            return new RemoteResult(result,"",Protocol.Text(identity,"mode"),hostname,network);
         },token);
     public Task<JsonElement> MaintenanceStatus(Device device,Credentials credentials,CancellationToken token,bool rollback=false)
         =>Use(device,credentials,async session=>

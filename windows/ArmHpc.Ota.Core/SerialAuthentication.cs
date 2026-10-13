@@ -22,8 +22,12 @@ public sealed partial class SerialRunner
                 ConsoleProtocol.VerifyIdentity(device,identity);
                 Report("读取主机名");
                 var host=await session.Run(SshRunner.HostnameCommand,TimeSpan.FromSeconds(4),deadline.Token);
+                Report("读取网口地址");
+                var metadata=await session.Run(NetworkMetadata.Command,TimeSpan.FromSeconds(4),deadline.Token);
+                var network=metadata.ExitCode==0?NetworkMetadata.Parse(metadata.Output):null;
+                string hostname=host.ExitCode==0?host.Output.Trim():"";
                 deadline.Token.ThrowIfCancellationRequested();Report("认证成功");
-                return new RemoteResult(identity,"",Protocol.Text(identity,"mode"),host.ExitCode==0?host.Output.Trim():"");
+                return new RemoteResult(network?.Merge(identity,hostname)??identity,"",Protocol.Text(identity,"mode"),hostname,network);
             },deadline.Token,fresh:true,progress:Report).ConfigureAwait(false);
         }
         catch(OperationCanceledException) when(!token.IsCancellationRequested)

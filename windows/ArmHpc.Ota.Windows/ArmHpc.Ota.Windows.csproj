@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF>
     <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>ARMHPC-OTA</AssemblyName><Version>1.0.0</Version>
+    <AssemblyName>ARMHPC-OTA</AssemblyName><Version>1.1.0</Version>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../ArmHpc.Ota.Core/ArmHpc.Ota.Core.csproj" /></ItemGroup>
 </Project>

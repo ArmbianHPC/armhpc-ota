@@ -49,4 +49,26 @@ public static class Scanner
         });
         return found.OrderBy(item => item.Address, StringComparer.Ordinal).ToArray();
     }
+    public static async Task<IReadOnlyList<DiscoveredHost>> ScanWithNames(string cidr, int port,
+        Action<int,int>? progress=null, Action<int,int>? nameProgress=null,
+        Action<DiscoveredHost>? discovered=null, CancellationToken cancellation=default,
+        Func<string,CancellationToken,Task<DiscoveryName?>>? resolver=null)
+    {
+        resolver ??= HostDiscovery.Resolve;
+        var endpoints = await Scan(cidr,port,progress,cancellation).ConfigureAwait(false);
+        foreach(var endpoint in endpoints) { cancellation.ThrowIfCancellationRequested(); discovered?.Invoke(new(endpoint)); }
+        var results = new System.Collections.Concurrent.ConcurrentBag<DiscoveredHost>();
+        int complete=0;
+        await Parallel.ForEachAsync(endpoints,new ParallelOptions {MaxDegreeOfParallelism=8,CancellationToken=cancellation},async (endpoint,token)=>
+        {
+            DiscoveryName? name=null;
+            try { name=await resolver(endpoint.Address,token).ConfigureAwait(false); }
+            catch(Exception error) when(error is SocketException or IOException or FormatException) { }
+            token.ThrowIfCancellationRequested();
+            var host=new DiscoveredHost(endpoint,HostDiscovery.CleanName(name?.Hostname),name?.Source??"");
+            results.Add(host);discovered?.Invoke(host);nameProgress?.Invoke(Interlocked.Increment(ref complete),endpoints.Count);
+        }).ConfigureAwait(false);
+        return results.OrderBy(h=>h.Endpoint.Address,StringComparer.Ordinal).ToArray();
+    }
+
 }

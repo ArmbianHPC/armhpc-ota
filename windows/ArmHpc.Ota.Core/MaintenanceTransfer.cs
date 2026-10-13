@@ -2,7 +2,9 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Net.Sockets;
 using Renci.SshNet;
+using Renci.SshNet.Common;
 namespace ArmHpc.Ota.Core;
 
 public sealed partial class SshRunner
@@ -39,7 +41,7 @@ with tarfile.open(r,"r:xz") as t:
    target.parent.mkdir(parents=True,exist_ok=True,mode=448);target.write_bytes(t.extractfile(x).read());target.chmod(384)
 home=next(d.glob("armhpc-ota-*/src")); code="import sys;sys.path.insert(0,"+repr(str(home))+");from armhpc_ota.maintenance import main;raise SystemExit(main())"
 result=subprocess.run(["python3","-c",code,"--bundle",str(b),"--request-id",sys.argv[2]],text=True,capture_output=True)
-print(result.stdout,end="");sys.exit(result.returncode)
+print(result.stdout,end="",flush=True);print(result.stderr,end="",file=sys.stderr,flush=True);sys.exit(result.returncode)
 """;
 
     private static ConnectionInfo Info(Endpoint endpoint,Credentials credentials)
@@ -109,20 +111,40 @@ print(result.stdout,end="");sys.exit(result.returncode)
     }
     public async Task<JsonElement> InstallTools(Endpoint endpoint,Credentials credentials,Device device,string bundle,CancellationToken token=default,string? requestId=null)
     {
+        try
+        {
         string remote=await Upload(endpoint,credentials,device,bundle,token,true);
         // The installed verifier establishes trust before authenticated package code is loaded.
         string verifier=MaintenanceVerifier;
         return await Task.Run(()=>
         {
             using var client=new SshClient(Info(endpoint,credentials));var fingerprint=Pin(client,device);client.Connect();
+            using var cancellation=token.Register(()=>client.Dispose());
             var identity=StableIdentity(client,credentials);
             ValidateMaintenanceIdentity(device,identity,fingerprint());
             string command=(credentials.Username!="root"?"sudo -n -- ":"")+"python3 -c "+Commands.Quote(verifier)+" "+Commands.Quote(remote)+" "+Commands.Quote(requestId??Guid.NewGuid().ToString("D"));
             using var execution=client.CreateCommand(command);execution.CommandTimeout=TimeSpan.FromMinutes(10);
             string output=execution.Execute();
-            if(string.IsNullOrWhiteSpace(output))throw new InvalidOperationException("维护接入未返回结果："+execution.Error[..Math.Min(execution.Error.Length,1200)]);
-            return Protocol.Decode(output);
+            return DecodeMaintenanceReply(output,execution.Error,execution.ExitStatus);
         },token);
+        }
+        catch(Exception) when(token.IsCancellationRequested){throw new OperationCanceledException(token);}
+        catch(Exception error) when(error is SshConnectionException or SshOperationTimeoutException or SocketException)
+        {throw new TransientConnectionException("维护接入连接中断；保留原请求 ID，重连后查询设备任务。",error);}
+    }
+    public static JsonElement DecodeMaintenanceReply(string output,string error,int? exitStatus)
+    {
+        string diagnostic=error.Trim();if(diagnostic.Length>1200)diagnostic=diagnostic[^1200..];
+        if(!string.IsNullOrWhiteSpace(output))
+        {
+            var data=Protocol.Decode(output);
+            if(exitStatus is not null && exitStatus!=0)
+                throw new RemoteRejectedException("maintenance_bootstrap_failed","维护接入退出码 "+exitStatus+"。"+(diagnostic.Length>0?diagnostic:"设备返回了非成功退出状态。"));
+            return data;
+        }
+        if(exitStatus is null || exitStatus==0)
+            throw new TransientConnectionException("维护接入结果未知：未收到 CLI JSON；保留原请求 ID 并查询设备状态。"+(diagnostic.Length>0?" "+diagnostic:""));
+        throw new RemoteRejectedException("maintenance_bootstrap_failed","维护接入退出码 "+exitStatus+"："+(diagnostic.Length>0?diagnostic:"设备没有返回 stdout 或 stderr；请查询原维护任务。"));
     }
     private static JsonElement StableIdentity(SshClient client,Credentials credentials)
     {

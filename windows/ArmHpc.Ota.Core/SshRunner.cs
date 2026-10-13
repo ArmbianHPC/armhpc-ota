@@ -38,8 +38,10 @@ public sealed partial class SshRunner
             if (expected?.IgnoreFingerprint!=true && expected?.HostKeys.TryGetValue(mode, out string? pin) == true && pin != fingerprint)
                 throw new InvalidOperationException("当前环境的 SSH 主机密钥已改变。请单独核查后重新登记。");
             string hostname=Hostname(client);
-            JsonElement data = operation == "status" && arguments.Count == 0 ? status : Command(client, credentials, operation, arguments, yes);
-            return new RemoteResult(data, fingerprint, mode, hostname);
+            var network = operation == "status" ? NetworkMetadata.Read(client) : null;
+            cancellation.ThrowIfCancellationRequested();
+            JsonElement data = operation == "status" && arguments.Count == 0 ? (network?.Merge(status,hostname)??status) : Command(client, credentials, operation, arguments, yes);
+            return new RemoteResult(data, fingerprint, mode, hostname, network);
         }, cancellation); }
         catch (Exception) when (cancellation.IsCancellationRequested) { throw new OperationCanceledException(cancellation); }
         catch (Exception error) when (error is SshConnectionException or SshOperationTimeoutException or SocketException)

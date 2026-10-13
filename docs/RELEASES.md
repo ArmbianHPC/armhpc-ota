@@ -16,6 +16,13 @@ Include licenses, dependency records, instructions, and corresponding source inf
 
 `tools/build-msi.py` builds the Windows installer; `tools/build-linux-cli.py` builds the Linux x86_64/ARM64 controller. `tools/package-runtime.py` prepares the device runtime, and `python -m armhpc_ota.lan_publish tools --help` describes maintenance signing.
 
+Build the Linux controller from a clean committed checkout. `--source-ref` must
+resolve to that checkout's HEAD; check out an older ref before building it. The
+builder exports the resolved commit once, publishes both architectures from that
+snapshot, and includes the same source archive in the package. `BUILD-INFO.json`
+records the commit and source archive SHA256. Pending tracked or untracked source
+changes are rejected before publishing.
+
 ```sh
 python tools/release-policy.py --tag v1.0.0 --directory /path/to/packages
 python tools/release-policy.py --tag v1.0.0 --directory /path/to/packages --apply

@@ -15,7 +15,9 @@ public partial class MainWindow
     {
         defaultLogin=vault.LoadDefault();deviceView=CollectionViewSource.GetDefaultView(devices);
         deviceView.Filter=item=>item is Device d && DeviceSelection.Matches(d,HostFilter.Text,ExactHostname.IsChecked==true,(ModeFilter.SelectedItem as ComboBoxItem)?.Tag.ToString()??"all");
-        DeviceGrid.ItemsSource=deviceView;CommandPreset.ItemsSource=ArmHpcCommands.Presets;CommandPreset.SelectedIndex=0;
+        DeviceGrid.ItemsSource=deviceView;CommandPreset.ItemsSource=ArmHpcCommands.ManagementPresets;
+        CommandPreset.SelectedItem=ArmHpcCommands.ManagementPresets.First(p=>p.Command=="armhpc --help");
+        DevelopmentPreset.ItemsSource=ArmHpcCommands.DevelopmentPresets;DevelopmentPreset.SelectedIndex=0;
         devices.CollectionChanged+=(_,e)=>
         {
             if(e.NewItems is not null)foreach(Device d in e.NewItems)d.PropertyChanged+=DevicePropertyChanged;
@@ -29,7 +31,7 @@ public partial class MainWindow
     {
         Dispatcher.InvokeAsync(()=>
         {
-            if(e.PropertyName is "Hostname" or "Name" or "Address" or "Mode"){DeviceGrid.CommitEdit();DeviceGrid.CommitEdit();deviceView?.Refresh();}
+            if(e.PropertyName is "Hostname" or "Name" or "MacAddress" or "Address" or "Mode"){DeviceGrid.CommitEdit();DeviceGrid.CommitEdit();deviceView?.Refresh();}
             RefreshSelectionSummary();
         });
     }

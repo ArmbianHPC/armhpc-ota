@@ -13,7 +13,10 @@ public sealed class Device : INotifyPropertyChanged
 
     private string address = "", mode = "candidate", state = "尚未认证", version = "", name = "", board = "";
     private bool selected;
-    private string hostname="";
+    private string hostname="", hostnameSource="", macAddress="", networkDetail="";
+    public string HostnameSource {get=>hostnameSource;set{hostnameSource=value;Changed();}}
+    public string MacAddress {get=>macAddress;set{macAddress=value;Changed();}}
+    public string NetworkDetail {get=>networkDetail;set{networkDetail=value;Changed();}}
     public string Hostname {get=>hostname;set{hostname=value;Changed();}}
     private string lastCommand="",commandSummary="",commandDetail="";
     public string LastCommand{get=>lastCommand;set{lastCommand=value;Changed();}}
@@ -50,7 +53,7 @@ public sealed class Device : INotifyPropertyChanged
 
 public sealed record Credentials(string Username, string Password, string? PrivateKeyPath = null, string? Passphrase = null);
 public sealed record Endpoint(string Address, int Port = 22);
-public sealed record RemoteResult(JsonElement Data, string Fingerprint, string Mode, string Hostname="");
+public sealed record RemoteResult(JsonElement Data, string Fingerprint, string Mode, string Hostname="", NetworkSnapshot? Network=null);
 
 public static class Protocol
 {

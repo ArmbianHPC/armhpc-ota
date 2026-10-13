@@ -10,7 +10,7 @@ static string Password()
     Console.Error.WriteLine();return value.ToString();
 }
 const string Help="""
-ARMHPC OTA controller 1.0.0 — SSH / USB serial automation
+ARMHPC OTA controller 1.1.0 — SSH / USB serial automation
 
   ARMHPC-OTA-CLI command --ssh <IPv4> [--ssh <IPv4> ...] --command "armhpc ..."
       [--devices-csv <inventory.csv> | --all-managed] [--hostname <name>] [--exact-hostname]
@@ -40,7 +40,7 @@ Watchdog/BOOT commands use "command"; destructive diagnostics require one device
 Reboot / connection loss is observed by persistent device, maintenance and OTA job IDs.
 """;
 if(args.Length==0 || args.Contains("--help") || args.Contains("-h")){Console.WriteLine(Help);return 0;}
-if(args[0]=="--version"){Console.WriteLine("1.0.0");return 0;}
+if(args[0]=="--version"){Console.WriteLine("1.1.0");return 0;}
 if(args[0]=="command")return await ArmHpc.Ota.Cli.CommandCli.Run(args.Skip(1).ToArray());
 var flags=new HashSet<string>{"--yes","--json","--remember","--allow-http","--ignore-fingerprint"};
 var valued=new HashSet<string>{"--ssh","--serial","--port","--baud-rate","--source","--release","--target","--bundle","--ca","--scan-range","--serial-reconnect","--minimum-agent","--username","--password-env","--key","--passphrase-env","--hostkey-system","--hostkey-rescue","--device-id","--task","--package","--output-directory"};
@@ -100,6 +100,8 @@ try
         string id=Protocol.Text(response.Data,"device_id");var previous=devices.FirstOrDefault(d=>d.DeviceId==id);
         if(previous is not null && previous!=device)foreach(var pin in previous.HostKeys)device.HostKeys.TryAdd(pin.Key,pin.Value);
         device.DeviceId=id;device.Mode=response.Mode;device.Board=Protocol.Text(response.Data,"board");device.Hostname=response.Hostname;
+        if(response.Hostname.Length>0)device.HostnameSource=device.Transport=="serial"?"串口":"SSH";
+        if(response.Network is not null){device.MacAddress=response.Network.MacAddress;device.NetworkDetail=response.Network.Detail;}
         if(device.Transport=="ssh")device.HostKeys[response.Mode]=response.Fingerprint;
         if(args[0]=="status"){devices.RemoveAll(d=>d.DeviceId==device.DeviceId);devices.Add(device);vault.SaveDevices(devices);if(Has("--remember"))vault.SaveConnection(device,credentials);Emit(response.Data);return 0;}
         if(args[0]=="boot-export")

@@ -8,6 +8,28 @@ public static class SftpTransportChecks
 {
     public static async Task Run(Action<bool,string> check)
     {
+        string maintenanceAcknowledgement="{\"protocol\":1,\"ok\":true,\"data\":{\"maintenance\":{\"task_id\":\"original\",\"stage\":\"queued\"}}}";
+        check(Protocol.Text(SshRunner.DecodeMaintenanceReply(maintenanceAcknowledgement,"",0).GetProperty("maintenance"),"task_id")=="original","maintenance JSON acknowledgement retains its original ID");
+        check(Protocol.Text(SshRunner.DecodeMaintenanceReply(maintenanceAcknowledgement,"",null).GetProperty("maintenance"),"stage")=="queued","valid maintenance JSON acknowledges submission even without a final SSH exit status");
+        bool detailed=false;
+        try{SshRunner.DecodeMaintenanceReply("","fixture watchdog gate refused",1);}catch(RemoteRejectedException error){detailed=error.Code=="maintenance_bootstrap_failed" && error.Message.Contains("fixture watchdog gate refused") && error.Message.Contains("1");}
+        check(detailed,"maintenance bootstrap stderr and exit status survive an empty stdout");
+        bool refused=false;
+        try{SshRunner.DecodeMaintenanceReply("{\"protocol\":1,\"ok\":false,\"error\":{\"code\":\"watchdog_test_active\",\"message\":\"Finish the previous diagnosis\"}}","",2);}catch(RemoteRejectedException error){refused=error.Code=="watchdog_test_active";}
+        check(refused,"maintenance protocol refusal preserves its device error code");
+        foreach(int? maintenanceExitStatus in new int?[]{null,0})
+        {
+            bool unknown=false;try{SshRunner.DecodeMaintenanceReply("","",maintenanceExitStatus);}catch(TransientConnectionException){unknown=true;}
+            check(unknown,"an empty maintenance response remains unknown and can be observed by the same request ID");
+            bool warningUnknown=false;
+            try{SshRunner.DecodeMaintenanceReply("","Warning: pending reboot",maintenanceExitStatus);}
+            catch(TransientConnectionException error){warningUnknown=error.Message.Contains("Warning: pending reboot");}
+            check(warningUnknown,"a warning without maintenance JSON preserves unknown submission and its diagnostic");
+        }
+        check(Protocol.Text(SshRunner.DecodeMaintenanceReply(maintenanceAcknowledgement,"Warning: pending reboot",0).GetProperty("maintenance"),"task_id")=="original","valid maintenance JSON stays acknowledged when stderr contains a warning");
+        bool failed=false;
+        try{SshRunner.DecodeMaintenanceReply(maintenanceAcknowledgement,"fixture failed",2);}catch(RemoteRejectedException){failed=true;}
+        check(failed,"a nonzero maintenance exit cannot be counted as successful submission");
         string? fixture=Environment.GetEnvironmentVariable("ARMHPC_SFTP_FIXTURE");if(fixture is null)return;
         using var document=JsonDocument.Parse(File.ReadAllText(fixture));var cfg=document.RootElement;
         using var client=new SftpClient(cfg.GetProperty("host").GetString()!,cfg.GetProperty("port").GetInt32(),cfg.GetProperty("username").GetString()!,cfg.GetProperty("password").GetString()!);

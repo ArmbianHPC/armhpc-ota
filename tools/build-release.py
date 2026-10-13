@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import lzma
 import os
 from pathlib import Path
 import shutil
@@ -59,7 +60,7 @@ def build(args):
     for name, dest in [('ArmHpc.Ota.Windows', portable), ('ArmHpc.Ota.Cli', portable), ('ArmHpc.Ota.Server', portable / 'server')]:
         project = repo / 'windows' / name / (name + '.csproj')
         with (work / (name + '-publish.txt')).open('w', encoding='utf-8') as log:
-            for command in [['dotnet', 'restore', str(project), '-r', 'win-x64', '--locked-mode'],
+            for command in [['dotnet', 'restore', str(project), '--locked-mode'],
                             ['dotnet', 'publish', str(project), '-c', 'Release', '-f', 'net10.0-windows', '-r', 'win-x64', '--self-contained', 'true',
                              '--no-restore', '-o', str(dest)]]:
                 subprocess.run(command, cwd=repo, stdout=log, stderr=subprocess.STDOUT, check=True)
@@ -76,7 +77,22 @@ def build(args):
     shutil.copyfile(signed['bundle'], maintenance)
     (portable / 'maintenance').mkdir()
     shutil.copyfile(maintenance, portable / 'maintenance/maintenance.tar.xz')
-    for name in ('README.md', 'CHANGELOG.md'):
+    source_directory = portable / 'source'
+    source_directory.mkdir()
+    shutil.copy2(output / ('armhpc-ota-' + version + '-source.tar.xz'), source_directory)
+    framework_archive = source_directory / ('armbian-hpc-' + version + '-source.tar.xz')
+    with (work / 'framework-source.tar').open('xb') as stream:
+        subprocess.run(['git', '-C', str(frame), 'archive', '--format=tar',
+                        '--prefix=armbian-hpc-' + version + '/', refs['armbian-hpc']],
+                       stdout=stream, check=True)
+    with (work / 'framework-source.tar').open('rb') as source, lzma.open(framework_archive, 'xb', preset=6) as destination:
+        shutil.copyfileobj(source, destination)
+    (portable / 'BUILD-INFO.json').write_text(json.dumps({
+        'version': version, 'source_commits': refs, 'sdk': sdk,
+        'dotnet_runtime': lock['dotnet_runtime'],
+        'sources': [{'file': p.name, 'sha256': digest(p)} for p in sorted(source_directory.iterdir())]
+    }, indent=2) + '\n', encoding='utf-8')
+    for name in ('README.md', 'README.zh-CN.md', 'CHANGELOG.md'):
         shutil.copy2(repo / name, portable / name)
     shutil.copytree(repo / 'docs', portable / 'docs')
     binary = output / ('armhpc-ota-' + version + '-windows-win-x64.zip')

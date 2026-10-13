@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from contextlib import redirect_stdout, redirect_stderr
 from unittest.mock import patch
 from armhpc_ota.engine import Engine
 from armhpc_ota import watchdog
@@ -32,6 +33,22 @@ class Watchdog034(unittest.TestCase):
         self.e.store.read=lambda:None
         atomic_json(self.c.state/'maintenance/task.json',{'stage':'installing'})
         with self.assertRaises(OTAError):watchdog.prepare(self.e)
+    def test_maintenance_cli_reports_unresolved_watchdog_without_writes(self):
+        from armhpc_ota import maintenance
+        prepared=watchdog.prepare(self.e)
+        watchdog.test(self.e,prepared['test_id'],True)
+        stdout,stderr=io.StringIO(),io.StringIO()
+        with patch('armhpc_ota.config.Config.load',return_value=self.c), \
+             patch('armhpc_ota.engine.Engine',return_value=self.e), \
+             redirect_stdout(stdout),redirect_stderr(stderr):
+            code=maintenance.main(['--bundle',str(self.root/'not-opened.tar.xz')])
+        value=json.loads(stdout.getvalue())
+        self.assertEqual(code,2)
+        self.assertFalse(value['ok'])
+        self.assertEqual(value['error']['code'],'watchdog_test_active')
+        self.assertEqual(stderr.getvalue(),'')
+        self.assertEqual(watchdog.record(self.c)['stage'],'submitted')
+        self.assertFalse((self.c.state/'maintenance/task.json').exists())
     def test_mounted_data_and_changed_sata_refused(self):
         d=read_json(self.root/'device.json');next(x for x in d['blocks'] if x.get('fixture_role')=='data')['mountpoints']=['/data'];atomic_json(self.root/'device.json',d)
         with self.assertRaisesRegex(OTAError,'Unmount'):watchdog.prepare(self.e)

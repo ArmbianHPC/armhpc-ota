@@ -1,45 +1,74 @@
-# 设备与批量操作
+# Device management
 
-表格显示主机名、连接、环境、系统版本、Rescue 版本／槽位、时间状态、最近命令和返回概况；详细行与横向滚动查看完整结果。
+[简体中文](DEVICE-MANAGEMENT.zh-CN.md)
 
-可勾选、全选可见、反选和清空选择；主机名支持精确与包含筛选。默认登录与单台登录保存在本机加密存储，CSV 不导出密码。
+The device table shows hostname, MAC address, address/COM, board, environment,
+system and Rescue versions, status, recent command and result summary. Selecting
+a row highlights it without expanding a details panel. Full command output is
+shown in the separate results panel.
+Notes, transport and clock-quality columns are no longer displayed; existing
+connection settings and clock records remain compatible.
 
-命令、工具接入和 OTA 队列支持并发 1–8。OTA 和接入默认先完成一台，再推进后续设备；失败暂停后续队列。写盘开始后停止批量仅停止尚未开始的设备。
+## Discover without logging in
 
-命令栏支持 armhpc、armhpc-rescue、armhpc-kube 的单条命令。交互配置使用 SSH／串口终端。返回状态为 succeeded、failed、unknown 或 skipped；忽略 unknown 只影响队列推进，不把未知结果改为成功。
+Specify an IPv4 CIDR and select **Scan SSH / hostname**. The scan first finds SSH
+candidates, then queries reverse DNS and local-link mDNS PTR records. It never
+sends usernames, passwords or SSH authentication messages. Name queries have a
+bounded deadline and can be cancelled with the scan.
 
-旧请求使用原 ID、包哈希和目标继续。串口重启或认证中断后重新认证，释放占用；不同时用多个终端占用同一 COM。
+DNS/mDNS names are discovery hints, not verified device identity. Devices and
+routers must publish appropriate records; otherwise the hostname remains empty.
+The SSH banner is not used as a hostname. A later authenticated query replaces
+the discovered name with the actual OS hostname. Rediscovery never overwrites an
+already verified managed hostname.
 
-## 网口定位
+## MAC addresses
 
-命令栏提供“网口绿灯定位（30 秒）”“停止网口定位”和“网口定位状态”。支持多选设备及 1–8 并发；在 Rescue 中自动使用对应命令入口。设备需要安装包含该命令的框架运行时。
+Authentication and status refresh read the current MAC addresses of physical
+interfaces through the existing SSH or serial connection. The interface carrying
+the SSH connection is preferred for the table; all available interface names,
+MACs and addresses are available in the host CLI status `network_interfaces`
+field. Loopback and virtual interfaces are excluded. The probe is read-only and
+does not require a new device agent.
 
-```sh
-armhpc identify --seconds 30 --json
-armhpc identify --stop --json
-armhpc identify --status --json
-```
+MAC values are inventory information; upgrade authorization continues to use
+the persistent device ID and trusted SSH identity. Existing protocol-1 status
+fields are retained. The host CLI status response adds `mac_address`,
+`network_interfaces` and `hostname` when these are available.
 
-可用 `--interface eth0` 指定网口，`--period-ms 1000` 设置亮灭周期。后台任务在连接断开后继续，到时或停止时恢复原来的硬件 LED 规则。此方式要求网口有链路，以及关联绿色 PHY LED 的 netdev 硬件卸载支持。
+## Select, filter and remove
 
-设备端的三个 ARMHPC 命令入口支持 Bash Tab 补全。安装相应维护资源后，SSH／串口新登录会话自动加载；现有终端执行 `source /usr/lib/armhpc/completion.bash` 即可启用。
+Use checkboxes, Ctrl/Shift row selection, select-visible, invert or clear-selection.
+Filtering supports hostname, MAC, address and device ID; exact mode matches only
+the hostname. Operations use the visible selected devices.
 
-## 主机名和网络配置
+**Delete selected hosts**, or Delete while the table has focus, removes candidates
+or registered hosts from the local list. Local connection credentials for removed
+connections are cleared; default login settings are retained. Device tasks and
+their original local task records remain intact. Re-add and authenticate a host
+to continue observing its task. Rescanning can discover a removed host again.
+Deletion is refused during an active local scan, authentication or batch.
 
-命令栏提供“主机名”和“网络配置和事务”查询，支持以下普通系统命令：
+## Operations
 
-```sh
-armhpc hostname set compute-07 --yes --json
-armhpc network show --interface eth0 --json
-armhpc network set --interface eth0 --dhcp --plan --json
-armhpc network set --interface eth0 --dhcp --yes --json
-armhpc network confirm --transaction <事务ID> --yes --json
-armhpc network rollback --transaction <事务ID> --yes --json
-```
+- **Device management:** everyday ARMHPC commands, hostname/network management,
+  port identification, reboot and single-device terminal access.
+- **Batch OTA:** local push, tool maintenance, original-task continuation,
+  status/logs, pre-write cancel/retry and Rescue recovery.
+- **Initial setup:** bootstrap preview and initial OTA layout setup.
+- **Development and diagnostics:** watchdog fault injection, BOOT candidates and
+  backups, legacy source-based updates, publishing, fingerprint override and
+  detailed clock diagnostics.
 
-网络设置由 systemd-networkd 应用，默认 90 秒内需通过新地址或 USB 串口确认，否则自动回滚。
-重新交互式 SSH 登录会先提示确认、回滚或稍后处理；非交互命令和 SFTP 不弹提示，登录本身不算确认。
-先确认网络事务，再执行 OTA。升级和 OTA 恢复会保留普通系统主机名、hosts 和网络配置；
-Rescue 主机名继续自动生成。交互向导使用 `armhpc hostname configure` 或 `armhpc network configure`，
-需要 SSH／串口终端；命令栏不会向 Rescue 自动转换这些普通系统配置命令。
-设备需先安装包含新命令和保留策略的维护运行时。
+The everyday preset picker excludes development presets. Their CLI commands,
+confirmation rules and identity checks are unchanged. Watchdog and BOOT writes
+still require one device, concurrency one and observation of the original ID.
+
+Commands, setup and OTA use concurrency 1–8. OTA/setup default to a pilot device;
+failure pauses followers. Stopping a batch stops later devices and does not cancel
+an already submitted device task. Unknown command outcomes remain unknown even
+when the user elects to continue the queue; commands are not automatically resent.
+
+Default and per-device credentials use local encrypted storage on Windows and are
+not exported to CSV. Interactive wizards use the SSH/serial terminal. Do not open
+the same COM port simultaneously in multiple terminal programs.

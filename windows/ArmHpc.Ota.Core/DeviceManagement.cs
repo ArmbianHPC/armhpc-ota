@@ -10,7 +10,7 @@ public static class DeviceSelection
         if(mode!="all" && device.Mode!=mode)return false;
         search=search.Trim();if(search.Length==0)return true;
         if(exact)return string.Equals(device.Hostname,search,StringComparison.OrdinalIgnoreCase);
-        return new[]{device.Hostname,device.Name,device.Address,device.DeviceId}.Any(v=>v.Contains(search,StringComparison.OrdinalIgnoreCase));
+        return new[]{device.Hostname,device.Name,device.MacAddress,device.Address,device.DeviceId}.Any(v=>v.Contains(search,StringComparison.OrdinalIgnoreCase));
     }
     public static IReadOnlyList<Device> Targets(IEnumerable<Device> visible,IEnumerable<Device> highlighted)
     {
@@ -48,28 +48,31 @@ public sealed record ArmHpcRequest(string Program,string[] Arguments,bool Writes
     }
 }
 
-public sealed record CommandPreset(string Name,string Command);
+public sealed record CommandPreset(string Name,string Command,bool Development=false);
 public static class ArmHpcCommands
 {
     public static IReadOnlyList<CommandPreset> Presets {get;} = [
-        new("看门狗状态","armhpc watchdog status --json"),new("看门狗实验报告","armhpc watchdog report --json"),new("BOOT 维护状态","armhpc ota boot status --json"),
+        new("看门狗状态","armhpc watchdog status --json",true),new("看门狗实验报告","armhpc watchdog report --json",true),new("BOOT 维护状态","armhpc ota boot status --json",true),
         new("主机名","armhpc hostname show --json"),new("网络配置和事务","armhpc network show --json"),
         new("主机名向导","armhpc hostname configure"),new("网络配置向导","armhpc network configure"),
         new("ARMHPC 帮助","armhpc --help"),new("OTA 状态和版本","armhpc ota status --json"),
         new("OTA 任务日志","armhpc ota logs --json"),new("OTA 工具一致性","armhpc ota tools status --json"),
         new("OTA 诊断","armhpc ota doctor --json"),new("OTA 接入预览","armhpc ota bootstrap --json"),
         new("本地初始系统恢复计划","armhpc ota plan --release initial --target system --recovery --json"),
-        new("OTG 串口状态","armhpc usb-console status --json"),new("当前内核启动日志","armhpc usb-console logs"),
-        new("上次内核启动日志","armhpc usb-console logs --previous"),new("RGB 状态","armhpc led --status"),
+        new("OTG 串口状态","armhpc usb-console status --json"),new("当前内核启动日志","armhpc usb-console logs",true),
+        new("上次内核启动日志","armhpc usb-console logs --previous",true),new("RGB 状态","armhpc led --status"),
         new("网口绿灯定位（30 秒）","armhpc identify --seconds 30 --json"),new("停止网口定位","armhpc identify --stop --json"),
         new("网口定位状态","armhpc identify --status --json"),
-        new("开启蓝色心跳","armhpc led --heartbeat on"),new("关闭蓝色心跳","armhpc led --heartbeat off"),
+        new("开启蓝色心跳","armhpc led --heartbeat on",true),new("关闭蓝色心跳","armhpc led --heartbeat off",true),
         new("请求下一次进入 Rescue","armhpc rescue"),new("进入 Rescue 并重启","armhpc rescue --reboot"),
         new("取消 Rescue 启动请求","armhpc rescue --cancel"),new("正常重启设备","armhpc reboot"),
         new("Rescue 综合状态","armhpc-rescue status"),new("Rescue SATA 安装预览","armhpc-rescue install --disk /dev/sda"),
         new("Rescue SATA 恢复预览","armhpc-rescue restore --disk /dev/sda"),new("K3s 检查","armhpc-kube check"),
         new("普通系统配置向导","armhpc configuration"),new("Rescue 配置向导","armhpc-rescue configuration"),
         new("K3s 配置向导","armhpc-kube configuration")];
+
+    public static IReadOnlyList<CommandPreset> ManagementPresets => Presets.Where(p=>!p.Development).ToArray();
+    public static IReadOnlyList<CommandPreset> DevelopmentPresets => Presets.Where(p=>p.Development).ToArray();
 
     private static void ValidateHostSettings(string command,string[] args)
     {

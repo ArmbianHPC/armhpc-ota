@@ -48,7 +48,7 @@ def discover(config):
     compatible = Path('/proc/device-tree/compatible').read_bytes().rstrip(b'\0').decode().split('\0')
     require(all(item in compatible for item in board['compatible']), 'board_mismatch', 'Device tree does not match the selected adapter')
     blocks = flatten(parse_json(run('lsblk', '--json', '--bytes', '--paths', '--output',
-        'NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,PARTUUID,START,LOG-SEC,MOUNTPOINTS,TRAN,PKNAME,MAJ:MIN,MODEL,SERIAL,PARTLABEL').encode())['blockdevices'])
+        'NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,PARTUUID,START,LOG-SEC,MOUNTPOINTS,TRAN,PKNAME,MAJ:MIN,MODEL,SERIAL,WWN,PARTLABEL').encode())['blockdevices'])
     root_source = run('findmnt', '-n', '-o', 'SOURCE', '/')
     root = str(Path(root_source.split('[')[0]).resolve())
     for node in blocks:

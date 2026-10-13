@@ -8,6 +8,10 @@ Release 标题固定为标签本身：`v<主版本>.<次版本>.<修订号>`。�
 
 `tools/build-msi.py` 构建 Windows 安装包；`tools/build-linux-cli.py` 构建 Linux 上位机；`tools/package-runtime.py` 生成设备运行时。签名接口使用 `python -m armhpc_ota.lan_publish tools --help`。
 
+Linux 上位机构建要求源码已提交且工作区干净，`--source-ref` 必须解析到当前 HEAD；构建旧版本时先检出对应 ref。
+构建器从固定 commit 导出一次源码，两种架构均从该快照编译，并将同一源码归档放入发行包。
+`BUILD-INFO.json` 记录 commit 和源码归档 SHA256；已跟踪或未跟踪源码存在变更时，在编译前拒绝构建。
+
 ```sh
 python tools/release-policy.py --tag v1.0.0 --directory /path/to/packages
 python tools/release-policy.py --tag v1.0.0 --directory /path/to/packages --apply

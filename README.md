@@ -2,14 +2,15 @@
 
 [简体中文](README.zh-CN.md)
 
-ARMHPC OTA **1.0.0** is a general update and device-management platform for ARM Linux systems. It combines a shared device engine with a Windows GUI and Windows/Linux controller CLIs.
+ARMHPC OTA **1.1.0** is a general update and device-management platform for ARM Linux systems. It combines a shared device engine with a Windows GUI and Windows/Linux controller CLIs.
 
 The update workflow is separated from board-specific storage and boot integration. WXY OEC Turbo (OECT) is the first integrated device; additional devices use their own board profiles and compatible firmware packages.
 
 ## Features
 
 - Upload local signed packages through SSH/SFTP or USB serial, without requiring a fixed controller IP address.
-- Manage multiple devices, filter by hostname, inspect command results, and run operations with concurrency from 1 to 8.
+- Discover SSH candidates and DNS/mDNS hostnames without logging in; read hostname and MAC information through authenticated SSH or serial sessions.
+- Select, filter and remove hosts, inspect command results, and run operations with concurrency from 1 to 8. Everyday management and development diagnostics have separate controls.
 - Replace the configured normal-system partition offline from Rescue. Update Rescue through its inactive A/B slot and confirm it after boot.
 - Verify Ed25519 signatures, SHA256 hashes, board, architecture, storage layout, and capacity before deployment.
 - Resume transfers and persistent tasks after connection loss or reboot, with maintenance backups and rollback.
@@ -57,7 +58,7 @@ Choose a system OTA package that matches the device's board profile from [armbia
 - [Automatic upgrades and reconnection](docs/AUTOMATIC-UPGRADE.md)
 - [Signing and releases](docs/RELEASES.md)
 - [Building the software](docs/BUILD.md)
-- [v1.0.0 release notes](docs/releases/v1.0.0.md) / [简体中文](docs/releases/v1.0.0.zh-CN.md)
+- [v1.1.0 release notes](docs/releases/v1.1.0.md) / [简体中文](docs/releases/v1.1.0.zh-CN.md)
 - [Known issues](docs/KNOWN-ISSUES.md)
 
 ## License

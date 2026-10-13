@@ -143,13 +143,15 @@ public static class AutomaticUpgrade
                 for(int poll=0;poll<maintenancePolls;poll++)
                 {
                     var result=await Query(()=>connection.Maintenance(token),true);CheckId(result);
-                    if(result.TryGetProperty("maintenance",out m) && m.ValueKind==JsonValueKind.Object)
+                    bool hasRecord=result.TryGetProperty("maintenance",out m) && m.ValueKind==JsonValueKind.Object;
+                    if(hasRecord && Protocol.Text(m,"task_id")==task.MaintenanceId)
                     {
-                        if(Protocol.Text(m,"task_id")!=task.MaintenanceId)throw new InvalidOperationException("维护请求 ID 不匹配。");
                         string stage=Protocol.Text(m,"stage");log("tools:"+stage);
                         if(stage=="succeeded"){completed=true;break;}
                         if(stage is "incomplete" or "rolled-back")throw new InvalidOperationException("工具维护未成功；可继续原请求或回退维护。");
                     }
+                    else if(hasRecord && Protocol.Text(m,"stage") is not ("succeeded" or "rolled-back"))
+                        throw new InvalidOperationException("设备有其他活动维护请求；原请求 ID 不匹配。");
                     else if(submissions++<3)
                     {
                         // A lost reply does not authorize a new request. Retry the same signed bundle and ID.

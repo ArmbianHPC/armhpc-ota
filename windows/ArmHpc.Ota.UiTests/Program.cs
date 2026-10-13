@@ -64,13 +64,32 @@ internal sealed class Suite
         OtaPilot.IsChecked=true;BootstrapPilot.IsChecked=true;
         Check(System.Windows.Controls.ScrollViewer.GetHorizontalScrollBarVisibility(DeviceGrid)==System.Windows.Controls.ScrollBarVisibility.Visible,"device table horizontal scrollbar explicit");
         Check(DeviceGrid.Columns.Any(c=>c.Header.ToString()=="返回概况") && DeviceGrid.Columns.Any(c=>c.Header.ToString()=="最近命令"),"command summary columns present");
-        Check(DeviceGrid.RowDetailsTemplate is not null,"command detail row bound");
-        Check(DeviceGrid.Columns.Any(c=>c.Header.ToString()=="时间状态"),"clock quality column present");
+        Check(DeviceGrid.RowDetailsTemplate is null && DeviceGrid.RowDetailsVisibilityMode==DataGridRowDetailsVisibilityMode.Collapsed,"device selection cannot expand a row details panel");
+        DeviceGrid.UnselectAll();b.CommandDetail="saved command output";DeviceGrid.SelectedItem=b;
+        Check(((TextBox)window.FindName("ResultText")).Text==b.CommandDetail,"selected command output stays in the separate result panel");
+        b.CommandDetail="";
+        Check(DeviceGrid.Columns.Any(c=>c.Header.ToString()=="MAC 地址") && !DeviceGrid.Columns.Any(c=>new[]{"备注","连接","时间状态"}.Contains(c.Header.ToString())),"MAC column replaces removed note, transport and clock columns");
+        var development=(TabItem)window.FindName("DevelopmentTab");
+        var developmentPreset=(ComboBox)window.FindName("DevelopmentPreset");
+        Check(development.Header.ToString()=="开发与诊断" && developmentPreset.Items.Cast<CommandPreset>().All(p=>p.Development),"development command picker is grouped separately");
+        Check(CommandPreset.Items.Cast<CommandPreset>().All(p=>!p.Development),"daily command picker excludes development presets");
+        Check(window.FindName("RemoveDevicesButton") is Button,"local inventory deletion exposed");
         Update(a,new RemoteResult(JsonSerializer.SerializeToElement(new{agent_version="0.3.2",device_id="a",clock=new{quality="estimated",source="restored-shared-time",epoch=1791570000,last_saved_epoch=1791569000}}),"","rescue"));
         Check(a.ClockStatus=="估计时间" && a.ClockDetail.Contains("电脑接收时间"),"actual WPF status updates clock diagnosis");
         Update(b,new RemoteResult(JsonSerializer.SerializeToElement(new{agent_version="0.3.1",device_id="b"}),"","system"));
         Check(b.ClockStatus=="未提供","actual WPF accepts old agent clock omission");
         Check(CancelAuthenticationButton is not null && !CancelAuthenticationButton.IsEnabled,"authentication cancellation exposed and idle by default");
+        var metadata=NetworkMetadata.Parse("{\"interfaces\":[{\"interface\":\"eth0\",\"mac_address\":\"02:00:00:00:00:07\",\"addresses\":[\"192.168.1.10\"]}]}")!;
+        Update(a,new RemoteResult(JsonSerializer.SerializeToElement(new{agent_version="1.0.1",device_id="a"}),"","rescue","verified-node",metadata));
+        Check(a.MacAddress=="02:00:00:00:00:07" && a.HostnameSource=="SSH" && a.NetworkDetail.Contains("eth0"),"actual WPF update displays authenticated MAC and hostname source");
+        var candidate=DeviceInventory.ApplyDiscovery(devices,new(new Endpoint("192.168.1.12"),"scan-node.local","mDNS"));
+        Check(candidate.Hostname=="scan-node.local" && !candidate.Managed,"scan names appear without device registration");
+        int removed=(int)Call("RemoveLocalDevices",new List<Device>{candidate})!;
+        Check(removed==1 && !devices.Contains(candidate),"unregistered scanned hosts can be deleted locally");
+        var tasks=(List<PendingTask>)typeof(MainWindow).GetField("pendingTasks",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(window)!;
+        var pending=new PendingTask(a.DeviceId,Guid.NewGuid().ToString("D"),"existing-release","all");tasks.Add(pending);
+        removed=(int)Call("RemoveLocalDevices",new List<Device>{a})!;
+        Check(removed==1 && tasks.Any(t=>t.JobId==pending.JobId),"managed host removal preserves existing upgrade records");
         return checks;
     }
 }
@@ -80,12 +99,13 @@ internal static class Program
     {
         string output=Path.GetFullPath(args.Length>0?args[0]:"ui-result.png");Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         var app=new App();app.InitializeComponent();
-        var window=new MainWindow(Path.Combine(Path.GetDirectoryName(output)!,"ui-state"));
+        var window=new MainWindow(Path.Combine(Path.GetDirectoryName(output)!,"ui-state-"+Guid.NewGuid().ToString("N")));
         if(window.DeviceGrid.Items.Count!=0)throw new InvalidOperationException("Fresh application must have no fabricated devices");
         int checks=new Suite(window).VerifyManagement();
         var data=(ObservableCollection<Device>)typeof(MainWindow).GetField("devices",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(window)!;
-        data.Clear();data.Add(new Device{Address="192.168.1.10",Hostname="armhpc-example",DeviceId="fixture-only",Mode="system",State="就绪",SystemVersion="1.0.0",RescueVersion="1.0.0 · a",ClockStatus="已校准"});
-        var content=(FrameworkElement)window.Content;content.Measure(new Size(1320,900));content.Arrange(new Rect(0,0,1320,900));content.UpdateLayout();
+        data.Clear();data.Add(new Device{Address="192.168.1.10",Hostname="armhpc-example",DeviceId="fixture-only",Mode="system",State="就绪",SystemVersion="1.0.1",RescueVersion="1.0.1 · a",MacAddress="02:00:00:00:00:07",HostnameSource="SSH",ClockStatus="已校准"});
+        window.DeviceGrid.SelectedItem=data[0];
+        var content=(FrameworkElement)window.Content;((Grid)content).Background=window.Background;content.Measure(new Size(1320,900));content.Arrange(new Rect(0,0,1320,900));content.UpdateLayout();
         var image=new RenderTargetBitmap(1320,900,96,96,PixelFormats.Pbgra32);image.Render(content);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(image));using(var f=File.Create(output))encoder.Save(f);
         File.WriteAllText(Path.ChangeExtension(output,".json"),JsonSerializer.Serialize(new{checks=checks+1,passed=true,network_accessed=false}));
         Console.WriteLine($"WPF {checks+1} checks passed");app.Shutdown();return 0;

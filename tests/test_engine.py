@@ -16,6 +16,18 @@ from support import fixture, release, boot_fixture
 
 
 class EngineTests(unittest.TestCase):
+    def test_wwn_change_is_refused_before_writing(self):
+        device = read_json(self.config.simulate / 'device.json')
+        disk = next(item for item in device['blocks'] if item.get('type') == 'disk' and item.get('tran') == 'sata')
+        disk['wwn'] = '0x5000000000000001'
+        atomic_json(self.config.simulate / 'device.json', device)
+        job = self.engine.apply(self.manifest)
+        disk['wwn'] = '0x5000000000000002'
+        atomic_json(self.config.simulate / 'device.json', device)
+        stored = self.engine.store.read(job['job_id'])
+        with self.assertRaisesRegex(OTAError, 'Physical disk changed'):
+            self.engine._recheck(stored)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

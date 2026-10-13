@@ -84,6 +84,7 @@ public static class SerialRebootChecks
         {
             if(command=="true")return "";
             if(command=="hostname")return "serial-host\n";
+            if(command==NetworkMetadata.Command)return "{\"interfaces\":[{\"interface\":\"eth0\",\"mac_address\":\"02:00:00:00:00:07\",\"addresses\":[\"192.168.1.7\"]}]}";
             if(command==SshRunner.BootIdCommand)return Boot+"\n";
             string identity=WrongAfterReboot && Reboots>0?"wrong-device":"serial-reboot-fixture";
             if(command==Commands.Build("status",[],false))return JsonSerializer.Serialize(new{protocol=1,ok=true,data=new{device_id=identity,mode=Mode,agent_version=Version,bootstrapped=true,job=(object?)null}});

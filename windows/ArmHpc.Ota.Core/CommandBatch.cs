@@ -22,7 +22,7 @@ public static class CommandBatch
         Func<Device,Task<CommandReply>> send,Action<CommandOutcome>? completed=null,BatchQueue? queue=null,CancellationToken token=default)
     {
         BatchQueue.ValidateConcurrency(options.Concurrency);
-        bool diagnostic=request.Arguments.FirstOrDefault()=="watchdog" || request.Arguments.Take(2).SequenceEqual(new[]{"ota","boot"});
+        bool diagnostic=request.Arguments.FirstOrDefault() is "watchdog" or "emmc" || request.Arguments.Take(2).SequenceEqual(new[]{"ota","boot"});
         if(diagnostic && request.Writes && (targets.Count!=1 || options.Concurrency!=1 || options.IgnoreUnknown))
             throw new ArgumentException("看门狗故障/BOOT 诊断只允许单台、并发 1；未知结果必须查询，不可忽略。");
         if(request.Interactive)throw new ArgumentException("交互命令请使用单台终端。");

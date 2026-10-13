@@ -63,7 +63,8 @@ public partial class MainWindow : Window
     private void Update(Device device, RemoteResult response)
     {
         device.Mode = response.Mode;
-        if(response.Hostname.Length>0)device.Hostname=response.Hostname;
+        if(response.Hostname.Length>0){device.Hostname=response.Hostname;device.HostnameSource=device.Transport=="serial"?"串口":"SSH";}
+        if(response.Network is not null){device.MacAddress=response.Network.MacAddress;device.NetworkDetail=response.Network.Detail;}
         var status = response.Data;
         if (!status.TryGetProperty("agent_version", out _) || !status.TryGetProperty("device_id", out _)) return;
         string id = Protocol.Text(status, "device_id");
@@ -94,15 +95,20 @@ public partial class MainWindow : Window
 
     private async void ScanClick(object sender, RoutedEventArgs e)
     {
+        if(batching || authenticating is not null){StatusBar.Text="请等待当前操作完成后扫描。";return;}
+        scanning?.Cancel();
+        using var session=CancellationTokenSource.CreateLinkedTokenSource(closing.Token);scanning=session;
         try
         {
-            scanning?.Cancel(); scanning = CancellationTokenSource.CreateLinkedTokenSource(closing.Token);
-            var found = await Scanner.Scan(ScanRange.Text, 22, (done, total) => Dispatcher.Invoke(() => StatusBar.Text = $"扫描 {done}/{total} · 未进行认证"), scanning.Token);
-            foreach (var endpoint in found) if (!devices.Any(d => d.Address == endpoint.Address && d.Port == endpoint.Port)) devices.Add(new Device { Address = endpoint.Address, Port = endpoint.Port });
-            StatusBar.Text = $"发现 {found.Count} 个 SSH 候选；请明确选择并认证。";
+            var found=await Scanner.ScanWithNames(ScanRange.Text,22,
+                (done,total)=>Dispatcher.Invoke(()=>{if(scanning==session)StatusBar.Text=$"扫描 SSH {done}/{total} · 不登录设备";}),
+                (done,total)=>Dispatcher.Invoke(()=>{if(scanning==session)StatusBar.Text=$"查询 DNS/mDNS 名称 {done}/{total}";}),
+                host=>Dispatcher.Invoke(()=>{if(scanning==session && !session.IsCancellationRequested)DeviceInventory.ApplyDiscovery(devices,host);}),session.Token);
+            if(scanning==session){StatusBar.Text=$"发现 {found.Count} 个 SSH 候选，{found.Count(h=>h.Hostname.Length>0)} 个有 DNS/mDNS 名称；扫描未登录设备。";Save();}
         }
-        catch (OperationCanceledException) { StatusBar.Text = "扫描停止。"; }
-        catch (Exception error) { MessageBox.Show(this, error.Message, "扫描失败"); }
+        catch(OperationCanceledException){if(scanning==session)StatusBar.Text="扫描停止。";}
+        catch(Exception error){if(scanning==session)MessageBox.Show(this,error.Message,"扫描失败");}
+        finally{if(scanning==session)scanning=null;}
     }
     private void StopScanClick(object sender, RoutedEventArgs e) => scanning?.Cancel();
     private void AddClick(object sender, RoutedEventArgs e)
@@ -404,7 +410,11 @@ public partial class MainWindow : Window
     private void SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         RefreshSelectionSummary();
-        if (DeviceGrid.SelectedItem is Device device && latestStatus.TryGetValue(device.DeviceId, out var status)) Show(status);
+        if (DeviceGrid.SelectedItem is Device device)
+        {
+            if (!string.IsNullOrWhiteSpace(device.CommandDetail)) ResultText.Text = device.CommandDetail;
+            else if (latestStatus.TryGetValue(device.DeviceId, out var status)) Show(status);
+        }
     }
     private void WindowClosing(object? sender, CancelEventArgs e)
     {

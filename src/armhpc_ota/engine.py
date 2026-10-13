@@ -189,7 +189,7 @@ class Engine:
                 'targets': {name: item['path'] for name, item in storage['partitions'].items() if item},
                 'partition_identity': {name: {key: item.get(key) for key in ('uuid', 'partuuid', 'start', 'size')}
                                        for name, item in storage['partitions'].items() if item},
-                'disk_identity': {item['path']: {'serial': item.get('serial'), 'size': item['size']}
+                'disk_identity': {item['path']: {'serial': item.get('serial'), 'wwn': item.get('wwn'), 'size': item['size']}
                                   for item in device['blocks'] if item['type'] == 'disk'},
                 'required_download_bytes': downloads, 'validation_scratch_bytes': scratch, 'free_bytes': free,
                 'recovery_storage_bytes': baseline_needed + boot_needed,
@@ -351,7 +351,8 @@ class Engine:
         for item in device['blocks']:
             if item['type'] == 'disk' and item['path'] in job['plan']['disk_identity']:
                 expected = job['plan']['disk_identity'][item['path']]
-                require(expected['serial'] == item.get('serial') and expected['size'] == item['size'],
+                require(expected['serial'] == item.get('serial') and expected['size'] == item['size'] and
+                        ('wwn' not in expected or expected['wwn'] == item.get('wwn')),
                         'target_changed', 'Physical disk changed after planning')
         # Rescue DATA is nofail and may not be mounted when this service starts.
         # Select the same verified cache used before the reboot before reading resources.

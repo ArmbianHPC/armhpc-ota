@@ -39,6 +39,12 @@ public sealed class Vault
         var value=Load(device.DeviceId+"/"+device.Transport);if(value is not null)return value;
         var legacy=Load(device.DeviceId);return device.Transport=="serial" && legacy?.PrivateKeyPath is not null?null:legacy;
     }
+    public void ForgetConnection(Device device,bool legacy=false)
+    {
+        if(device.DeviceId.Length==0)return;
+        File.Delete(FileFor(device.DeviceId+"/"+device.Transport));
+        if(legacy)File.Delete(FileFor(device.DeviceId));
+    }
     public void SaveDefault(Credentials credentials)=>Save("controller/default-login",credentials);
     public Credentials? LoadDefault()=>Load("controller/default-login");
     public void ClearDefault()=>File.Delete(FileFor("controller/default-login"));

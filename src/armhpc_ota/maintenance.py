@@ -325,10 +325,17 @@ def main(argv=None):
     from .config import Config
     from .engine import Engine
     import json
-    engine = Engine(Config.load())
-    result = worker(engine) if args.worker else schedule(engine, args.bundle, args.rollback, args.request_id)
-    print(json.dumps({'protocol': 1, 'ok': True, 'data': result}), flush=True)
-    return 1 if result.get('maintenance', {}).get('stage') == 'incomplete' else 0
+    try:
+        engine = Engine(Config.load())
+        result = worker(engine) if args.worker else schedule(engine, args.bundle, args.rollback, args.request_id)
+        print(json.dumps({'protocol': 1, 'ok': True, 'data': result}), flush=True)
+        return 1 if result.get('maintenance', {}).get('stage') == 'incomplete' else 0
+    except (OTAError, OSError, ValueError) as error:
+        value = {'code': getattr(error, 'code', 'io_or_config'), 'message': str(error)}
+        if getattr(error, 'details', None):
+            value['details'] = error.details
+        print(json.dumps({'protocol': 1, 'ok': False, 'error': value}), flush=True)
+        return 2
 
 def retain_installed_runtime(config, root):
     """Keep a signed, maintained agent when restoring an older OS baseline."""
