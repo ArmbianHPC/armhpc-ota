@@ -1,0 +1,4 @@
+# Single maintainer; required Code Owner approval is disabled.
+* @chens32
+/.github/ @chens32
+/tools/release-policy.py @chens32

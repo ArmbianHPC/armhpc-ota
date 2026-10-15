@@ -53,6 +53,10 @@ armhpc-rescue ota recover --release current --target system --yes --json
 
 ## 文档
 
+- [贡献说明](CONTRIBUTING.zh-CN.md)
+- [维护说明](docs/MAINTENANCE.zh-CN.md)
+- [使用咨询与建议](https://github.com/ArmbianHPC/armbian-hpc/discussions)
+
 - [Windows 安装](docs/INSTALLATION.zh-CN.md)
 - [Windows GUI／CLI](docs/WINDOWS.md)
 - [设备与批量命令](docs/DEVICE-MANAGEMENT.md)

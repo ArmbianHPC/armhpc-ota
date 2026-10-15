@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+-r requirements-test.txt
+cryptography==50.0.2
+zstandard==0.25.0
+PyYAML==6.0.3
