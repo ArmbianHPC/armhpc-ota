@@ -45,6 +45,7 @@ class Engine:
                 'capabilities': {'idempotent_apply': True, 'offline_baselines': True,
                                  'interrupted_root_recovery': True, 'rescue_ab': True, 'push_import': True, 'local_only_apply': True,
                                  'serial_push': True, 'watchdog_diagnostics': True, 'boot_maintenance': True,
+                                 'normal_firmware_update': True,
                                  'direct_squashfs': self.config.board().get('rescue_fstype') == 'squashfs'},
                 'baselines': self._baseline_status(),
                 'versions': {name: control.get('confirmed', {}).get(name, {}).get('boot', {}).get('release') if control else None for name in ('system', 'rescue')},
@@ -56,6 +57,7 @@ class Engine:
                 'watchdog': __import__('armhpc_ota.watchdog', fromlist=['status']).status(self),
                 'boot_maintenance': __import__('armhpc_ota.boot_maintenance', fromlist=['status']).status(self.config),
                 'tools': __import__('armhpc_ota.maintenance', fromlist=['status']).status(self.config),
+                'node_runtime': __import__('armhpc_ota.node_runtime',fromlist=['report']).report(self.config),
                 'hardware': __import__('armhpc_ota.hardware',fromlist=['report']).report(self.config,device)}
 
     def _baseline_status(self):
@@ -521,6 +523,9 @@ class Engine:
             from .boot_maintenance import confirm_diagnostic
             if confirm_diagnostic(self): return None
             job = self.store.read()
+            if job and job['stage']=='succeeded':
+                from .boot_maintenance import finish_paired_system
+                finish_paired_system(self,job)
             if not job or job['stage'] not in ('trial-rescue', 'trial-system'):
                 self._confirm_regular_boot()
                 return None

@@ -28,6 +28,10 @@ public sealed class Device : INotifyPropertyChanged
     public string ClockStatus{get=>clockStatus;set{clockStatus=value;Changed();}}
     [System.Text.Json.Serialization.JsonIgnore]
     public string ClockDetail{get=>clockDetail;set{clockDetail=value;Changed();}}
+    private string nodeStatus="未提供",nodeDetail="设备未提供节点状态。";
+    public string NodeStatus{get=>nodeStatus;set{nodeStatus=value;Changed();}}
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string NodeDetail{get=>nodeDetail;set{nodeDetail=value;Changed();}}
 
     private string systemVersion = "", rescueVersion = "", rescueSlot = "";
     public string Address { get => address; set { address = value; Changed(); } }
@@ -69,7 +73,7 @@ public static class Protocol
         }
         return root.GetProperty("data").Clone();
     }
-    public static string Text(JsonElement value, string property) => value.TryGetProperty(property, out var item) && item.ValueKind == JsonValueKind.String ? item.GetString()! : "";
+    public static string Text(JsonElement value, string property) => value.ValueKind == JsonValueKind.Object && value.TryGetProperty(property, out var item) && item.ValueKind == JsonValueKind.String ? item.GetString()! : "";
 }
 
 public sealed record MaintenanceTask(string DeviceId,string RequestId,string[] Ranges,string Stage="submitting") { public bool Terminal=>Stage is "succeeded" or "rolled-back" or "incomplete" or "refused"; }

@@ -27,6 +27,7 @@ def inspect(engine):
             'hardware': status.get('hardware'),
             'dependencies': dependencies, 'checks': checks, 'clock': clock,
             'source_profile': sources.show(c), 'tools': status.get('tools'),
+            'node_runtime':status.get('node_runtime',{'provided':False}),
             'watchdog': status['watchdog'], 'boot_maintenance': status['boot_maintenance'],
             'hardware_gate': status['hardware_gate'], 'hardware_verified': status['hardware_gate'].get('hardware_verified', False),
             'ready': all(dependencies.values()) and all(v['ok'] for v in checks.values())}

@@ -1,3 +1,9 @@
+# v1.3.0
+
+- Add signed paired kernel/BOOT firmware updates with private recovery export and persistent controller reconnection.
+- Integrate management network, node resource recovery, authentication, firewall, swap and health status.
+- Preserve existing JSON protocol and task bindings across firmware and tool updates.
+
 # v1.2.0
 
 

@@ -13,7 +13,12 @@ COMPLETION_TARGETS = frozenset((
 ))
 SERVICE_TARGETS = frozenset(('etc/systemd/system/armhpc-fan.service',
                              'etc/systemd/system/armhpc-performance.service',
-                             'etc/systemd/system/armhpc-performance.timer'))
+                             'etc/systemd/system/armhpc-performance.timer',
+                             *('etc/systemd/system/'+name for name in (
+                                 'armhpc-state.service','armhpc-runtime.service','armhpc-swap.service',
+                                 'armhpc-auth-recovery.service','armhpc-management-ready.service',
+                                 'armhpc-health.service','armhpc-health.timer','armhpc-firewall.service'))))
+NODE_TARGETS = frozenset(('etc/tmpfiles.d/armhpc-runtime.conf','etc/systemd/journald.conf.d/40-armhpc.conf'))
 BOARD_TARGETS = frozenset(('etc/armhpc/led.json', 'etc/armhpc/phy-led.json',
                           'etc/armhpc/fan.json', 'etc/armhpc/usb-console.json',
                           'etc/armhpc/network-ports.json', 'etc/armhpc/initramfs-firmware',
@@ -36,7 +41,8 @@ def files(payload, role=None, board=None):
         completion=item['target'] in COMPLETION_TARGETS
         service=item['target'] in SERVICE_TARGETS
         board_target=item['target'] in BOARD_TARGETS
-        require(library or notice or completion or service or board_target,'framework_resources','Framework resource is not code, completion, a service, board hardware or a license')
+        require(library or notice or completion or service or board_target or item['target'] in NODE_TARGETS,
+                'framework_resources','Framework resource is not code, completion, a service, board hardware or a license')
         scope=item.get('scope');require(scope in ('common','board','rescue','normal'),'framework_resources','Unknown framework scope')
         owner=item.get('board')
         require(owner is None or (scope=='board' and owner in ('wxy-oect-original','wxy-oesp-v22')),
@@ -45,7 +51,7 @@ def files(payload, role=None, board=None):
         require(key not in names,'framework_resources','Duplicate framework target');names.add(key)
         require(not board_target or (scope=='board' and owner is not None),
                 'framework_resources','Hardware resources require an explicit board')
-        require(not (completion or service) or scope=='common','framework_resources','Shared resources must use common scope')
+        require(not (completion or service or item['target'] in NODE_TARGETS) or scope=='common','framework_resources','Shared resources must use common scope')
         source=root.joinpath(*source_name.parts)
         require(source_name.parts[:2]==('compat','framework') and source.is_file() and not source.is_symlink() and
                 source.resolve().is_relative_to(root.resolve()) and sha256(source)==item['sha256'],

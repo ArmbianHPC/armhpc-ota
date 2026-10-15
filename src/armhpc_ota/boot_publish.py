@@ -10,7 +10,7 @@ from .io import sha256, fsync_dir
 from .metadata import sign,verify,validate_manifest,identifier,anchor_digest
 
 
-def build(rescue_manifest,rootfs,kernel,dtb,initramfs,recovery_initramfs,output,key,key_id,trust,sequence,original_kernel,original_dtb,system_rootfs=None):
+def build(rescue_manifest,rootfs,kernel,dtb,initramfs,recovery_initramfs,output,key,key_id,trust,sequence,original_kernel,original_dtb,system_rootfs=None,purpose='watchdog-diagnostic'):
     raw=Path(rescue_manifest).read_bytes();m=validate_manifest(verify(raw,Path(trust)))
     from .config import Config
     from .boot_platform import supported
@@ -41,6 +41,9 @@ def build(rescue_manifest,rootfs,kernel,dtb,initramfs,recovery_initramfs,output,
              'anchor_abi':m['anchor_abi'],'kernel_release':m['kernels']['rescue'],'files':entries,
              'requires':{'kernel_sha256':sha256(original_kernel),'dtb_sha256':sha256(original_dtb)},
              'anchor_sha256':anchor_digest([{'id':k,**entries[k]} for k in ('kernel','initramfs','dtb')])}
+    require(purpose in ('watchdog-diagnostic','firmware-update'),'boot_purpose','Unknown BOOT purpose')
+    if purpose=='firmware-update':
+        payload.update(purpose=purpose,minimum_agent='1.3.0')
     output=Path(output);require(not output.exists() and not output.is_symlink(),'release_exists','Published BOOT candidates cannot be overwritten')
     output.parent.mkdir(parents=True,exist_ok=True);temporary=output.with_name('.'+output.name+'.partial')
     require(not temporary.exists(),'release_partial','Resolve the old incomplete publication before signing')
@@ -60,6 +63,7 @@ def main(argv=None):
         p.add_argument('--'+name,required=True)
     p.add_argument('--sequence',required=True,type=int)
     p.add_argument('--system-rootfs')
+    p.add_argument('--purpose', choices=('watchdog-diagnostic','firmware-update'), default='watchdog-diagnostic')
     a=vars(p.parse_args(argv));a['rescue_manifest']=a.pop('rescue_manifest')
     print(__import__('json').dumps(build(**a),indent=2))
 

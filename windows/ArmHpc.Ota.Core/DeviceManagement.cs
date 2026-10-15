@@ -34,7 +34,7 @@ public sealed record ArmHpcRequest(string Program,string[] Arguments,bool Writes
         {
             program="armhpc-rescue";
             if(args.FirstOrDefault()=="rescue")args[0]="boot";
-            else if(args.Length>0 && args[0] is not ("fan" or "watchdog" or "ota" or "usb-console" or "led" or "identify" or "configuration" or "reboot" or "--help" or "-h"))
+            else if(args.Length>0 && args[0] is not ("fan" or "health" or "watchdog" or "ota" or "usb-console" or "led" or "identify" or "configuration" or "reboot" or "--help" or "-h"))
                 throw new ArgumentException("该命令仅适用于正常系统。");
         }
         if(program=="armhpc-rescue" && mode!="rescue")throw new ArgumentException("该命令需要设备先进入 Rescue。");
@@ -52,6 +52,10 @@ public sealed record CommandPreset(string Name,string Command,bool Development=f
 public static class ArmHpcCommands
 {
     public static IReadOnlyList<CommandPreset> Presets {get;} = [
+        new("本机健康","armhpc health status --json"),new("持久状态和恢复资源","armhpc state status --json"),
+        new("SSH 认证策略","armhpc auth status --json"),new("加密 swap","armhpc swap status --json"),
+        new("资源预留","armhpc resources status --json"),new("主机防火墙","armhpc firewall status --json"),
+        new("容器镜像源","armhpc-kube registry status --json"),
         new("风扇状态","armhpc fan status --json"),new("风扇自动温控","armhpc fan set --mode auto --yes --json"),
         new("风扇开启","armhpc fan set --mode on --yes --json"),new("风扇关闭（保留高温保护）","armhpc fan set --mode off --yes --json"),
         new("看门狗状态","armhpc watchdog status --json",true),new("看门狗诊断报告","armhpc watchdog report --json",true),new("BOOT 维护状态","armhpc ota boot status --json",true),
@@ -99,12 +103,13 @@ public static class ArmHpcCommands
             string option=args[index];
             if(!seen.Add(option) && option!="--dns")throw new ArgumentException("网络配置参数不可重复。");
             if(option is "--json" or "--yes")continue;
-            if(option is "--dhcp" or "--plan")
+            if(option is "--dhcp" or "--plan" or "--management")
             {
                 if(action!="set")throw new ArgumentException("此网络参数仅用于 set。");
                 continue;
             }
-            if(option is not ("--interface" or "--address" or "--gateway" or "--dns" or "--rollback-after" or "--transaction") || ++index>=args.Length || args[index].StartsWith("--"))
+            if(option is not ("--interface" or "--address" or "--gateway" or "--dns" or "--rollback-after" or "--transaction" or
+                             "--family" or "--management-target" or "--metric" or "--default-route" or "--route-table" or "--source") || ++index>=args.Length || args[index].StartsWith("--"))
                 throw new ArgumentException("未知网络配置参数或缺少值。");
             if(option=="--interface" && (!Regex.IsMatch(args[index],@"\A[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}\z") || args[index]=="lo"))throw new ArgumentException("网口名称无效。");
             if(option=="--transaction" && (action is not ("confirm" or "rollback") || !Guid.TryParse(args[index],out _)))throw new ArgumentException("确认或回滚需要有效事务 ID。");
@@ -114,6 +119,35 @@ public static class ArmHpcCommands
         }
         if(action=="set" && seen.Contains("--dhcp")==seen.Contains("--address"))throw new ArgumentException("请选择 DHCP 或静态 IPv4 地址。");
         if(seen.Contains("--gateway") && !seen.Contains("--address"))throw new ArgumentException("静态网关需要静态地址。");
+    }
+
+    private static bool ValidateNodeSettings(string command,string[] args)
+    {
+        string action=args.ElementAtOrDefault(1)??"status";
+        string[] actions=command switch {
+            "state"=>["status","reconcile","register"],"auth"=>["status","keys","key-add","key-remove","password","key-only","confirm","rollback"],
+            "swap"=>["status","set","stop"],"resources"=>["status","set"],"firewall"=>["status","set","confirm","rollback"],
+            "registry"=>["status","import"],"health"=>["status","collect"],_=>throw new ArgumentException("未知节点配置组。")};
+        if(!actions.Contains(action))throw new ArgumentException("未知节点配置操作。");
+        string[] values=command switch {
+            "state"=>["--manifest"],"auth"=>["--public-key-file","--fingerprint","--transaction"],
+            "swap"=>["--profile","--size-gib","--import-existing"],"resources"=>["--role","--memory-gib"],
+            "firewall"=>["--role","--management-cidr","--cluster-cidr","--ssh-port","--transaction"],
+            "registry"=>["--file","--default-fallback"],_=>[]};
+        string[] flags=command switch {
+            "state" or "resources"=>["--apply","--yes","--json"],
+            "auth"=>["--yes","--json"],"swap"=>["--apply","--yes","--json","--allow-degraded-noswap"],
+            "firewall"=>["--apply","--yes","--json","--nodeport"],"registry"=>["--apply","--yes","--json","--allow-http"],_=>["--json"]};
+        for(int index=2;index<args.Length;index++)
+        {
+            if(flags.Contains(args[index]))continue;
+            if(!values.Contains(args[index]) || ++index>=args.Length || args[index].StartsWith("--"))throw new ArgumentException("节点配置参数无效或缺少值。");
+        }
+        bool writes=(command=="auth" && action is not ("status" or "keys")) ||
+                    (command is "state" or "swap" or "resources" or "firewall" or "registry" && args.Contains("--apply")) ||
+                    (command=="swap" && action=="stop") || (command=="firewall" && action is "confirm" or "rollback");
+        if(writes && action!="password" && !args.Contains("--yes"))throw new ArgumentException("请先预览，再在命令中明确提供 --yes 确认该节点配置变更。");
+        return writes;
     }
 
     public static ArmHpcRequest Parse(string text)
@@ -132,12 +166,13 @@ public static class ArmHpcCommands
         if(tokens.Count==0 || tokens[0] is not ("armhpc" or "armhpc-rescue" or "armhpc-kube"))throw new ArgumentException("命令必须以 armhpc、armhpc-rescue 或 armhpc-kube 开头。");
         string program=tokens[0];string[] args=tokens.Skip(1).ToArray();string first=args.FirstOrDefault()??"--help";
         if(args.Length==0)args=["--help"];
-        string[] allowed=program=="armhpc"?["--help","-h","fan","watchdog","ota","usb-console","led","identify","hostname","network","rescue","reboot","configuration","firstrun"]:
-            program=="armhpc-kube"?["--help","-h","configuration","check"]:
-            ["--help","-h","fan","emmc","watchdog","ota","usb-console","led","identify","boot","status","install","restore","reboot","configuration","console","provision","firstrun"];
+        string[] allowed=program=="armhpc"?["--help","-h","fan","watchdog","ota","usb-console","led","identify","hostname","network","rescue","reboot","configuration","firstrun","state","auth","swap","resources","firewall","health"]:
+            program=="armhpc-kube"?["--help","-h","configuration","check","registry"]:
+            ["--help","-h","fan","emmc","watchdog","ota","usb-console","led","identify","boot","status","install","restore","reboot","configuration","console","provision","firstrun","health"];
         if(!allowed.Contains(first))throw new ArgumentException("未知 ARMHPC 子命令。");
         if(args.Contains("--daemon") || args.Contains("--watch") || args.Contains("--simulate-root") || args.Contains("--config") || args.Contains("--worker"))throw new ArgumentException("持续观察请使用任务面板；不允许服务内部或配置重定向参数。");
         bool help=args.Contains("--help") || args.Contains("-h");
+        bool nodeWrites=!help && (first is "state" or "auth" or "swap" or "resources" or "firewall" or "health" or "registry") && ValidateNodeSettings(first,args);
         if(first=="ota" && !help)
         {
             string op=args.ElementAtOrDefault(1)??"";
@@ -174,13 +209,13 @@ public static class ArmHpcCommands
             }
             if((args[1]=="set")!=seen.Contains("--mode"))throw new ArgumentException("仅 set 需要 --mode。");
         }
-        bool writes=!help && (first=="fan" && args.ElementAtOrDefault(1)=="set" || first=="emmc" || first is "hostname" or "network" && args.ElementAtOrDefault(1) is "set" or "configure" or "confirm" or "rollback" && !args.Contains("--plan") || first=="watchdog" && (args.ElementAtOrDefault(1) is "prepare" or "test" || args.Contains("--confirm-recovered") || args.Contains("--manual-recovery") || args.Contains("--cancel-prepared")) || first is "configuration" or "firstrun" or "provision" or "reboot" or "rescue" or "boot" ||
+        bool writes=nodeWrites || !help && (first=="fan" && args.ElementAtOrDefault(1)=="set" || first=="emmc" || first is "hostname" or "network" && args.ElementAtOrDefault(1) is "set" or "configure" or "confirm" or "rollback" && !args.Contains("--plan") || first=="watchdog" && (args.ElementAtOrDefault(1) is "prepare" or "test" || args.Contains("--confirm-recovered") || args.Contains("--manual-recovery") || args.Contains("--cancel-prepared")) || first is "configuration" or "firstrun" or "provision" or "reboot" or "rescue" or "boot" ||
             first is "led" or "identify" && !args.Contains("--status") || first=="usb-console" && args.Skip(1).Any(x=>x is "start" or "stop") ||
             first is "install" or "restore" && args.Contains("--execute") ||
-            first=="ota" && (args.ElementAtOrDefault(1)=="boot" && args.ElementAtOrDefault(2) is "apply" or "rollback" || args.ElementAtOrDefault(1) is "apply" or "recover" or "cancel" or "retry" or "receive" || args.ElementAtOrDefault(1)=="bootstrap" && args.Contains("--apply") || args.ElementAtOrDefault(1)=="source" && args.ElementAtOrDefault(2)=="set" || args.ElementAtOrDefault(1)=="tools" && args.ElementAtOrDefault(2)=="update"));
-        bool interactive=!help && (first is "hostname" or "network" && args.ElementAtOrDefault(1)=="configure" || first is "configuration" or "firstrun" or "provision" or "console" || first is "install" or "restore" && args.Contains("--execute"));
+            first=="ota" && (args.ElementAtOrDefault(1)=="boot" && args.ElementAtOrDefault(2) is "enter" or "apply" or "rollback" || args.ElementAtOrDefault(1) is "apply" or "recover" or "cancel" or "retry" or "receive" || args.ElementAtOrDefault(1)=="bootstrap" && args.Contains("--apply") || args.ElementAtOrDefault(1)=="source" && args.ElementAtOrDefault(2)=="set" || args.ElementAtOrDefault(1)=="tools" && args.ElementAtOrDefault(2)=="update"));
+        bool interactive=!help && (first=="auth" && args.ElementAtOrDefault(1)=="password" || first is "hostname" or "network" && args.ElementAtOrDefault(1)=="configure" || first is "configuration" or "firstrun" or "provision" or "console" || first is "install" or "restore" && args.Contains("--execute"));
         if(first is "fan" or "emmc" or "ota" or "watchdog" or "hostname" or "network" && writes && !interactive && !args.Contains("--yes"))args=[..args,"--yes"];
-        return new(program,args,writes,interactive,first=="reboot" || args.Contains("--reboot"));
+        return new(program,args,writes,interactive,first=="reboot" || args.Contains("--reboot") || first=="ota" && args.ElementAtOrDefault(1)=="boot" && args.ElementAtOrDefault(2)=="enter");
     }
 }
 

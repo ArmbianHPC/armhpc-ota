@@ -7,9 +7,10 @@ using System.Text.Json;
 namespace ArmHpc.Ota.Core;
 
 public sealed record UpgradeOptions(string Source,string? Release=null,string Target="all",bool AllowHttp=false,
-    string? Bundle=null,string? BundleSha256=null,string? Ca=null,string MinimumAgent="1.2.0",string[]? Ranges=null,bool ToolsOnly=false,string? Package=null,string? PackageSha256=null);
+    string? Bundle=null,string? BundleSha256=null,string? Ca=null,string MinimumAgent="1.3.0",string[]? Ranges=null,bool ToolsOnly=false,string? Package=null,string? PackageSha256=null);
 public sealed record AutomaticTask(string TaskId,string DeviceId,UpgradeOptions Options,string MaintenanceId,string JobId,
-    string Stage="created",string? Release=null,string? Error=null,string Phase="created",string? Manifest=null)
+    string Stage="created",string? Release=null,string? Error=null,string Phase="created",string? Manifest=null,
+    string Kind="ota",string? FirmwareBundle=null,string? FirmwareSha256=null,string? BackupDirectory=null)
 {
     public bool Terminal=>Stage is "succeeded" or "failed-recoverable" or "cancelled" or "superseded";
     public static AutomaticTask Create(string deviceId,UpgradeOptions options)
@@ -54,6 +55,7 @@ public interface IUpgradeConnection
     Task<string> UploadCa(string file,CancellationToken token);
     Task Reconnect(bool maintenance,CancellationToken token);
     Task<JsonElement> StagePackage(string package,string? release,string target,string requestId,Action<string> log,CancellationToken token)=>throw new NotSupportedException();
+    Task<string> ExportFirmwareBackup(JsonElement task,Action<string> log,CancellationToken token)=>throw new NotSupportedException();
 }
 
 public sealed class UpgradeConnection(ConnectionRouter router,Device device,Credentials credentials,string[] ranges):IUpgradeConnection
@@ -67,7 +69,25 @@ public sealed class UpgradeConnection(ConnectionRouter router,Device device,Cred
     public async Task<JsonElement> StagePackage(string package,string? release,string target,string requestId,Action<string> log,CancellationToken token)
     {
         var local=await PushPackage.Inspect(package,release,token);
+        if(Protocol.Text(local,"kind")=="firmware-update")
+        {
+            if(target!="all")throw new InvalidOperationException("配套内核固件包需要选择 all，同时更新 BOOT、Rescue 和普通系统。");
+            string uploaded=await router.Upload(Endpoint,credentials,device,Protocol.Text(local,"firmware_bundle"),token);
+            var plan=await Command("boot",["plan","--bundle",uploaded],false,token);
+            if(Protocol.Text(plan,"device_id")!=device.DeviceId || Protocol.Text(plan,"release")!=Protocol.Text(local,"release") ||
+               Protocol.Text(plan,"purpose")!="firmware-update" || Protocol.Text(plan,"bundle_sha256")!=Protocol.Text(local,"firmware_sha256"))
+                throw new InvalidOperationException("设备核验后的固件身份、用途或哈希不符。");
+            return JsonSerializer.SerializeToElement(new{complete=true,kind="firmware-update",device_id=device.DeviceId,
+                release=Protocol.Text(plan,"release"),firmware_bundle=Protocol.Text(plan,"bundle"),firmware_sha256=Protocol.Text(plan,"bundle_sha256")});
+        }
         return await router.StagePackage(Endpoint,credentials,device,local,target,requestId,log,token);
+    }
+    public async Task<string> ExportFirmwareBackup(JsonElement task,Action<string> log,CancellationToken token)
+    {
+        string id=Protocol.Text(task,"task_id");
+        if(Protocol.Text(task,"device_id")!=device.DeviceId || !Guid.TryParseExact(id,"D",out _))throw new InvalidOperationException("BOOT 备份身份不符。");
+        string directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"ARMHPC","OTA","private-boot-backups",id);
+        await router.DownloadBoot(Endpoint,credentials,device,task,directory,log,token);return directory;
     }
     public async Task Reconnect(bool maintenance,CancellationToken token){await router.Reconnect(device,credentials,ranges,token,maintenance);}
 }
@@ -107,13 +127,75 @@ public static class AutomaticUpgrade
                     : ["--manifest",task.Manifest,"--target",task.Options.Target,"--request-id",task.JobId,"--local-only"],true,token),
                 ()=>connection.Reconnect(false,token),(stage,percent)=>Stage(stage),token,jobPolls,delay);
         }
+        async Task<bool> ObserveFirmware()
+        {
+            if(task.FirmwareBundle is null || task.FirmwareSha256 is null || task.Release is null)
+                throw new InvalidOperationException("原固件任务缺少持久包绑定。");
+            async Task Submit(IReadOnlyList<string> arguments)
+            {
+                try{await connection.Command("boot",arguments,true,token);}
+                catch(TransientConnectionException)
+                {
+                    Stage("reconnecting");
+                    try{await connection.Reconnect(false,token);}catch(TransientConnectionException){}
+                }
+            }
+            for(int poll=0;poll<jobPolls;poll++)
+            {
+                token.ThrowIfCancellationRequested();
+                var status=await Query(()=>connection.Command("status",[],false,token));CheckId(status);
+                JsonElement current=default;
+                if(status.TryGetProperty("boot_maintenance",out var boot) && boot.ValueKind==JsonValueKind.Object)
+                    boot.TryGetProperty("task",out current);
+                bool same=current.ValueKind==JsonValueKind.Object && Protocol.Text(current,"task_id")==task.JobId;
+                if(same)
+                {
+                    if(Protocol.Text(current,"device_id")!=task.DeviceId || Protocol.Text(current,"release")!=task.Release ||
+                       Protocol.Text(current,"bundle_sha256")!=task.FirmwareSha256 || Protocol.Text(current,"purpose")!="firmware-update")
+                        throw new InvalidOperationException("设备的原固件任务绑定改变。");
+                    string stage=Protocol.Text(current,"stage");Stage("firmware:"+stage);
+                    if(stage=="committed")return true;
+                    if(stage=="rolled-back")return false;
+                    if(stage=="failed-needs-recovery")throw new InvalidOperationException("固件任务需要恢复；请查询原 BOOT 任务后继续或回滚。");
+                    if(stage=="updating-system" && status.TryGetProperty("job",out var systemJob) &&
+                       Protocol.Text(systemJob,"job_id")==Protocol.Text(current,"system_job_id") && Protocol.Text(systemJob,"stage")=="failed-recoverable")
+                        throw new InvalidOperationException("配套普通系统更新中断；请恢复原系统任务。");
+                    if(stage=="backup-ready")
+                    {
+                        string directory;
+                        try{directory=await connection.ExportFirmwareBackup(current,log,token);}
+                        catch(TransientConnectionException){Stage("reconnecting");await connection.Reconnect(false,token);await delay(token);continue;}
+                        task=task with {BackupDirectory=directory};Stage("firmware:backup-exported");
+                        string hash=Protocol.Text(current.GetProperty("backups").GetProperty("BOOT-rescue.img.xz"),"sha256");
+                        await Submit(["apply","--request-id",task.JobId,"--exported-backup-sha256",hash]);
+                    }
+                }
+                else
+                {
+                    if(current.ValueKind==JsonValueKind.Object && Protocol.Text(current,"stage") is not ("committed" or "rolled-back"))
+                        throw new InvalidOperationException("设备正在处理另一个 BOOT 任务。");
+                    if(Protocol.Text(status,"mode")!="rescue")
+                    {
+                        Stage("entering-rescue");
+                        await Submit(["enter","--bundle",task.FirmwareBundle,"--request-id",task.JobId]);
+                    }
+                    else
+                    {
+                        Stage("firmware:preparing");
+                        await Submit(["apply","--bundle",task.FirmwareBundle,"--request-id",task.JobId]);
+                    }
+                }
+                await delay(token);
+            }
+            throw new TimeoutException("固件观察超时；请继续原任务，尚未确认成功。");
+        }
         try
         {
             if(task.Terminal)return task;
             // Once a release is bound, resume only that exact job; do not change the source or run maintenance again.
             if(task.Release is not null)
             {
-                bool success=await Observe();Stage(success?"succeeded":"failed-recoverable");return task;
+                bool success=task.Kind=="firmware-update"?await ObserveFirmware():await Observe();Stage(success?"succeeded":"failed-recoverable");return task;
             }
             bool resumeMaintenance=original.Phase=="maintaining";
             JsonElement status=default;
@@ -169,6 +251,12 @@ public static class AutomaticUpgrade
                 if(task.Options.PackageSha256 is not null){using var stream=File.OpenRead(task.Options.Package);if(Convert.ToHexStringLower(SHA256.HashData(stream))!=task.Options.PackageSha256)throw new InvalidOperationException("本地包已改变，拒绝继续原任务。");}
                 Stage("uploading-package");var staged=await Query(()=>connection.StagePackage(task.Options.Package,task.Options.Release,task.Options.Target,task.TaskId,log,token));CheckId(staged);
                 if(!staged.GetProperty("complete").GetBoolean())throw new InvalidOperationException("设备尚未接收完整包。");
+                if(Protocol.Text(staged,"kind")=="firmware-update")
+                {
+                    task=task with {Release=Protocol.Text(staged,"release"),Kind="firmware-update",
+                        FirmwareBundle=Protocol.Text(staged,"firmware_bundle"),FirmwareSha256=Protocol.Text(staged,"firmware_sha256")};
+                    Stage("firmware:staged");bool completed=await ObserveFirmware();Stage(completed?"succeeded":"failed-recoverable");return task;
+                }
                 task=task with {Release=Protocol.Text(staged,"release"),Manifest=Protocol.Text(staged,"manifest")};Stage("submitting");
                 bool success=await Observe();Stage(success?"succeeded":"failed-recoverable");return task;
             }
