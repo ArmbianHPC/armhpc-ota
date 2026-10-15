@@ -7,7 +7,7 @@ using System.Text.Json;
 namespace ArmHpc.Ota.Core;
 
 public sealed record UpgradeOptions(string Source,string? Release=null,string Target="all",bool AllowHttp=false,
-    string? Bundle=null,string? BundleSha256=null,string? Ca=null,string MinimumAgent="1.1.4",string[]? Ranges=null,bool ToolsOnly=false,string? Package=null,string? PackageSha256=null);
+    string? Bundle=null,string? BundleSha256=null,string? Ca=null,string MinimumAgent="1.2.0",string[]? Ranges=null,bool ToolsOnly=false,string? Package=null,string? PackageSha256=null);
 public sealed record AutomaticTask(string TaskId,string DeviceId,UpgradeOptions Options,string MaintenanceId,string JobId,
     string Stage="created",string? Release=null,string? Error=null,string Phase="created",string? Manifest=null)
 {

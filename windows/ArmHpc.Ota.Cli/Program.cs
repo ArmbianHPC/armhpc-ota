@@ -10,7 +10,7 @@ static string Password()
     Console.Error.WriteLine();return value.ToString();
 }
 const string Help="""
-ARMHPC OTA controller 1.1.4 — SSH / USB serial automation
+ARMHPC OTA controller 1.2.0 — SSH / USB serial automation
 
   ARMHPC-OTA-CLI command --ssh <IPv4> [--ssh <IPv4> ...] --command "armhpc ..."
       [--devices-csv <inventory.csv> | --all-managed] [--hostname <name>] [--exact-hostname]
@@ -27,7 +27,7 @@ ARMHPC OTA controller 1.1.4 — SSH / USB serial automation
       [--allow-http] [--release <id>] [--target all|system|rescue]
       [--bundle <signed-maintenance.tar.xz>] [--ca <public-ca.pem>]
       [--scan-range <approved-cidr>] [--serial-reconnect COM9]
-      [--minimum-agent 1.1.4] [--yes] [--json]
+      [--minimum-agent 1.2.0] [--yes] [--json]
   ARMHPC-OTA-CLI resume --task <local-automation-id> [--bundle <same-hash-relocated-package>]
 
 Authentication: --username root; password is entered locally or read from --password-env <name>.
@@ -41,7 +41,7 @@ Watchdog/BOOT commands use "command"; destructive diagnostics require one device
 Reboot / connection loss is observed by persistent device, maintenance and OTA job IDs.
 """;
 if(args.Length==0 || args.Contains("--help") || args.Contains("-h")){Console.WriteLine(Help);return 0;}
-if(args[0]=="--version"){Console.WriteLine("1.1.4");return 0;}
+if(args[0]=="--version"){Console.WriteLine("1.2.0");return 0;}
 if(args[0]=="command")return await ArmHpc.Ota.Cli.CommandCli.Run(args.Skip(1).ToArray());
 var flags=new HashSet<string>{"--yes","--json","--remember","--allow-http","--ignore-fingerprint","--prepare"};
 var valued=new HashSet<string>{"--ssh","--serial","--port","--baud-rate","--source","--release","--target","--bundle","--ca","--scan-range","--serial-reconnect","--minimum-agent","--username","--password-env","--key","--passphrase-env","--hostkey-system","--hostkey-rescue","--device-id","--task","--package","--output-directory","--usb-tool-directory","--export"};
@@ -125,7 +125,7 @@ try
                 exported_backup_sha256=Protocol.Text(bootTask.GetProperty("backups").GetProperty("BOOT-rescue.img.xz"),"sha256")});
             return 0;
         }
-        var options=new UpgradeOptions(One("--source")??(args[0]=="tools-update" || Has("--package")?"":throw new ArgumentException("需要 --package 本地 OTA 包。")),One("--release"),One("--target")??"all",Has("--allow-http"),(One("--bundle")??(File.Exists(Path.Combine(AppContext.BaseDirectory,"maintenance/maintenance.tar.xz"))?Path.Combine(AppContext.BaseDirectory,"maintenance/maintenance.tar.xz"):null)),Ca:One("--ca"),MinimumAgent:One("--minimum-agent")??"1.1.4",Ranges:values.GetValueOrDefault("--scan-range")?.ToArray(),ToolsOnly:args[0]=="tools-update",Package:One("--package"));
+        var options=new UpgradeOptions(One("--source")??(args[0]=="tools-update" || Has("--package")?"":throw new ArgumentException("需要 --package 本地 OTA 包。")),One("--release"),One("--target")??"all",Has("--allow-http"),(One("--bundle")??(File.Exists(Path.Combine(AppContext.BaseDirectory,"maintenance/maintenance.tar.xz"))?Path.Combine(AppContext.BaseDirectory,"maintenance/maintenance.tar.xz"):null)),Ca:One("--ca"),MinimumAgent:One("--minimum-agent")??"1.2.0",Ranges:values.GetValueOrDefault("--scan-range")?.ToArray(),ToolsOnly:args[0]=="tools-update",Package:One("--package"));
         task=AutomaticTask.Create(id,options);
         if(!Has("--yes"))
         {
