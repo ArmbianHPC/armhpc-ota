@@ -52,6 +52,10 @@ Choose a system OTA package that matches the device's board profile from [armbia
 
 ## Documentation
 
+- [Contributing](CONTRIBUTING.md)
+- [Maintenance](docs/MAINTENANCE.md)
+- [Questions and ideas](https://github.com/ArmbianHPC/armbian-hpc/discussions)
+
 - [Windows installation](docs/INSTALLATION.md)
 - [Windows GUI and CLI](docs/WINDOWS.md)
 - [Device and batch commands](docs/DEVICE-MANAGEMENT.md)

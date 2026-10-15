@@ -1,0 +1,133 @@
+# SPDX-License-Identifier: GPL-3.0-only
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  sources:
+    name: OTA Sources
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: armhpc-ota
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: armhpc-ota
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ArmbianHPC/armbian-hpc
+          ref: 55d540b3ed6907e49b6cf7abb619232436f981f2
+          path: armbian-hpc
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            armhpc-ota/requirements-ci.txt
+            armhpc-ota/requirements-test.txt
+      - run: python -m pip install -r requirements-ci.txt
+      - run: python tools/check-maintenance.py
+      - run: python tools/license-audit.py --output "$RUNNER_TEMP/license-inventory.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: armhpc-ota-source-inventory
+          path: ${{ runner.temp }}/license-inventory.json
+          retention-days: 7
+  python:
+    name: OTA Python
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: armhpc-ota
+    env:
+      PYTHONPATH: ${{ github.workspace }}/armhpc-ota/src:${{ github.workspace }}/armbian-hpc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: armhpc-ota
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ArmbianHPC/armbian-hpc
+          ref: 55d540b3ed6907e49b6cf7abb619232436f981f2
+          path: armbian-hpc
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            armhpc-ota/requirements-ci.txt
+            armhpc-ota/requirements-test.txt
+      - run: python -m pip install -r requirements-ci.txt
+      - name: Install fixture tools
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y squashfs-tools u-boot-tools zstd xz-utils gcc
+      - name: Existing Python suite
+        run: sudo --preserve-env=PYTHONPATH,LD_LIBRARY_PATH "$(command -v python)" -m pytest tests --junitxml="$RUNNER_TEMP/python.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: armhpc-ota-python-results
+          path: ${{ runner.temp }}/*.xml
+          retention-days: 7
+  windows:
+    name: OTA Windows
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: armhpc-ota
+    steps:
+      - name: Preserve source line endings
+        working-directory: ${{ github.workspace }}
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: armhpc-ota
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: armhpc-ota/global.json
+      - name: Core and controller checks
+        run: dotnet run --project windows/ArmHpc.Ota.Tests/ArmHpc.Ota.Tests.csproj -c Release -p:RestoreLockedMode=true
+      - name: WPF checks
+        run: dotnet run --project windows/ArmHpc.Ota.UiTests/ArmHpc.Ota.UiTests.csproj -c Release -p:RestoreLockedMode=true -- "$env:RUNNER_TEMP/wpf/ui.png"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: wpf-preview
+          path: ${{ runner.temp }}/wpf/
+          retention-days: 7
+  linux-cli:
+    name: OTA Linux CLI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: armhpc-ota
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: armhpc-ota
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: armhpc-ota/global.json
+      - name: Build Linux x64 controller
+        run: dotnet publish windows/ArmHpc.Ota.Cli/ArmHpc.Ota.Cli.csproj -c Release -f net10.0 -r linux-x64 --self-contained true -p:RestoreLockedMode=true -p:InvariantGlobalization=true -o "$RUNNER_TEMP/cli-x64"
+      - name: Run Linux x64 CLI
+        run: '"$RUNNER_TEMP/cli-x64/ARMHPC-OTA-CLI" --version'
+      - name: Build Linux ARM64 controller
+        run: dotnet publish windows/ArmHpc.Ota.Cli/ArmHpc.Ota.Cli.csproj -c Release -f net10.0 -r linux-arm64 --self-contained true -p:RestoreLockedMode=true -p:InvariantGlobalization=true -o "$RUNNER_TEMP/cli-arm64"
