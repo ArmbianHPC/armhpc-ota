@@ -1,6 +1,6 @@
 {
   "repository": "ArmbianHPC/armbian-hpc",
-  "ref": "3813280748d0f13911aafa51742ea42dd4177770",
+  "ref": "1e53188e8de7f05282fcac2f74634d5e2238b868",
   "release": "v1.3.0",
   "purpose": "Pinned public companion source used by CI; update deliberately with compatibility checks."
 }
