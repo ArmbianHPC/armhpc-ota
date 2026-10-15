@@ -65,7 +65,8 @@ def publish_packages(repo, tag, paths, notes, *, apply=False, release_id=None, p
         asset = present.get(row['file'])
         if not asset or asset['size'] != row['size'] or asset.get('digest') != 'sha256:' + row['sha256']:
             raise ValueError('Uploaded package verification failed; old assets retained')
-    body = {'name': tag, 'body': notes.read_text(encoding='utf-8')}
+    body = {'tag_name': tag, 'name': tag, 'body': notes.read_text(encoding='utf-8'),
+            'draft': current['draft'], 'prerelease': current['prerelease']}
     subprocess.run(['gh', 'api', '--method', 'PATCH', f'repos/{repo}/releases/{release_id}',
                     '--input', '-'], input=json.dumps(body), text=True,
                    stdout=subprocess.DEVNULL, check=True)
@@ -77,7 +78,7 @@ def publish_packages(repo, tag, paths, notes, *, apply=False, release_id=None, p
         raise ValueError('Final Release does not match the complete package set')
     if publish:
         subprocess.run(['gh', 'api', '--method', 'PATCH', f'repos/{repo}/releases/{release_id}',
-            '--input', '-'], input=json.dumps({'draft': False, 'prerelease': False}), text=True,
+            '--input', '-'], input=json.dumps({'tag_name': tag, 'draft': False, 'prerelease': False}), text=True,
             stdout=subprocess.DEVNULL, check=True)
         final = release(repo, tag, release_id)
         if final['draft'] or final['prerelease']:
