@@ -18,6 +18,7 @@ POLICY = (
     'etc/ssh/image-framework-admin.conf', 'var/lib/armhpc/auth',
     'var/lib/armhpc/firewall',
     'etc/armhpc/management-network.json', 'var/lib/armhpc/network-config',
+    'etc/armhpc/data-identity.json',
     'etc/systemd/network', 'etc/NetworkManager/system-connections', 'etc/netplan',
     'etc/network/interfaces', 'etc/network/interfaces.d', 'etc/rancher/k3s',
     'etc/systemd/system/k3s.service', 'etc/systemd/system/k3s-agent.service',

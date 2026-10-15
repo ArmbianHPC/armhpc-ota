@@ -68,6 +68,18 @@ class SharedResourcesTests(unittest.TestCase):
         self.assertIn('usr/lib/armhpc/phy_leds.py', normal)
         self.assertIn('usr/lib/armhpc/clock_floor.py', rescue)
 
+    def test_shared_kernel_baseline_is_signed_and_common_to_all_roots(self):
+        source=self.payload/'compat/framework/data/kernel-baseline.json';source.parent.mkdir(parents=True)
+        source.write_text('{"schema_version":1,"requirements":{"CONFIG_CFS_BANDWIDTH":["y"]}}')
+        rows=[*self.rows,{'scope':'common','target':'usr/lib/armhpc/kernel-baseline.json',
+              'source':source.relative_to(self.payload).as_posix(),'sha256':hashlib.sha256(source.read_bytes()).hexdigest()}]
+        atomic_json(self.payload/'compat/framework-files.json',{'protocol':1,'files':rows})
+        for role in ('system','rescue_a','rescue_b'):
+            self.assertIn('usr/lib/armhpc/kernel-baseline.json',shared_resources.files(self.payload,role))
+        rows[-1]['scope']='normal'
+        atomic_json(self.payload/'compat/framework-files.json',{'protocol':1,'files':rows})
+        with self.assertRaises(OTAError):shared_resources.files(self.payload,'system')
+
     def test_completion_resources_are_shared_and_have_exact_allowed_targets(self):
         for role in ('system', 'rescue_a', 'rescue_b'):
             selected = shared_resources.files(self.payload, role)

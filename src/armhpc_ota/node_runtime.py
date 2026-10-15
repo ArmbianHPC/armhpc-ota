@@ -51,8 +51,11 @@ def _firmware_health(target):
         value=status()
         require(value['installed']['ready'],'health_state','Persistent program/configuration resources need repair')
         for unit,item in value.get('desired',{}).items():
-            if item['enabled'] and unit.endswith('.service'):
-                require(value.get('running',{}).get(unit,{}).get('ActiveState')=='active',
+            if item['enabled']:
+                running=value.get('running',{}).get(unit,{})
+                completed=(unit.endswith('.service') and running.get('Type')=='oneshot' and running.get('Result')=='success'
+                           and running.get('ExecMainStatus')=='0' and int(running.get('ExecMainStartTimestampMonotonic','0'))>0)
+                require(running.get('ActiveState')=='active' or completed,
                         'health_service','Restored service is not active: '+unit)
         path=Path('/etc/image-framework/k3s.json')
         if path.is_file():

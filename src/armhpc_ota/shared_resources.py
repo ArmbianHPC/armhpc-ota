@@ -18,7 +18,8 @@ SERVICE_TARGETS = frozenset(('etc/systemd/system/armhpc-fan.service',
                                  'armhpc-state.service','armhpc-runtime.service','armhpc-swap.service',
                                  'armhpc-auth-recovery.service','armhpc-management-ready.service',
                                  'armhpc-health.service','armhpc-health.timer','armhpc-firewall.service'))))
-NODE_TARGETS = frozenset(('etc/tmpfiles.d/armhpc-runtime.conf','etc/systemd/journald.conf.d/40-armhpc.conf'))
+NODE_TARGETS = frozenset(('etc/tmpfiles.d/armhpc-runtime.conf','etc/systemd/journald.conf.d/40-armhpc.conf',
+                          'usr/lib/armhpc/kernel-baseline.json'))
 BOARD_TARGETS = frozenset(('etc/armhpc/led.json', 'etc/armhpc/phy-led.json',
                           'etc/armhpc/fan.json', 'etc/armhpc/usb-console.json',
                           'etc/armhpc/network-ports.json', 'etc/armhpc/initramfs-firmware',

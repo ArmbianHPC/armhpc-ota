@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 import unittest
 import uuid
+from unittest import mock
+from types import SimpleNamespace
+from pathlib import Path
 from armhpc_ota import boot_maintenance as boot
 from armhpc_ota.errors import OTAError
 from armhpc_ota.io import read_json
@@ -49,6 +52,24 @@ class FirmwareUpdate(unittest.TestCase):
     def test_semantic_minimum_agent_comparison(self):
         self.assertLess(boot.version_tuple('1.2.10'),boot.version_tuple('1.3.0'))
         with self.assertRaises(OTAError):boot.version_tuple('1.3')
+
+
+class RestoredServiceHealth(unittest.TestCase):
+    def test_completed_oneshot_requires_real_execution_and_active_timers(self):
+        from armhpc_ota.node_runtime import firmware_health
+        unit={'Type':'oneshot','Result':'success','ExecMainStatus':'0','ExecMainStartTimestampMonotonic':'123',
+              'ActiveState':'inactive'}
+        state={'installed':{'ready':True},'desired':{'owned.service':{'enabled':True},'owned.timer':{'enabled':True}},
+               'running':{'owned.service':unit,'owned.timer':{'ActiveState':'active'}}}
+        libraries={'node_state':SimpleNamespace(kernel_status=lambda:{'ready':True},status=lambda:state),
+                   'network_ready':SimpleNamespace(inspect=lambda value:{'ready':True},policy=lambda:{})}
+        with mock.patch.dict('sys.modules',libraries),mock.patch('armhpc_ota.node_runtime.Path.is_file',return_value=False):
+            firmware_health('system')
+            unit['ExecMainStartTimestampMonotonic']='0'
+            with self.assertRaises(OTAError):firmware_health('system')
+            unit['ExecMainStartTimestampMonotonic']='123'
+            state['running']['owned.timer']['ActiveState']='failed'
+            with self.assertRaises(OTAError):firmware_health('system')
 
 
 if __name__=='__main__':unittest.main()

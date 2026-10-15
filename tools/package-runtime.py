@@ -69,6 +69,10 @@ def framework_files(framework):
         'usr/share/bash-completion/completions/armhpc-kube',
     )
     overlay=frame/'components/common/rootfs-overlay'
+    path=frame/'profiles/kernel/kubernetes.json'
+    if path.is_file():
+        rows.append((path,{'scope':'common','target':'usr/lib/armhpc/kernel-baseline.json',
+                          'source':'compat/framework/data/kernel-baseline.json','sha256':digest(path)}))
     for name in ('armhpc-fan.service','armhpc-performance.service','armhpc-performance.timer',
                  'armhpc-state.service','armhpc-runtime.service','armhpc-swap.service','armhpc-auth-recovery.service',
                  'armhpc-management-ready.service','armhpc-health.service','armhpc-health.timer','armhpc-firewall.service'):
