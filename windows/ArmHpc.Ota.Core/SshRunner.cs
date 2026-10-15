@@ -48,10 +48,14 @@ public sealed partial class SshRunner
         { throw new TransientConnectionException("SSH 连接中断；设备任务仍需通过持久 ID 查询。", error); }
     }
 
+    private static TimeSpan DefaultCommandTimeout(string operation,IReadOnlyList<string> arguments)
+        =>TimeSpan.FromMinutes(operation is "download" or "apply" or "bootstrap" or "recover" or "tools" ||
+            operation=="boot" && arguments.FirstOrDefault() is "plan" or "apply" or "rollback" or "restore" ? 60 : 3);
+
     private static JsonElement Command(SshClient client, Credentials credentials, string operation, IReadOnlyList<string> arguments, bool yes = false, TimeSpan? timeout=null)
     {
         using var command = client.CreateCommand(Commands.Build(operation, arguments, credentials.Username != "root", yes));
-        command.CommandTimeout = timeout??TimeSpan.FromMinutes(operation is "download" or "apply" or "bootstrap" or "recover" or "tools" ? 60 : 3);
+        command.CommandTimeout = timeout??DefaultCommandTimeout(operation,arguments);
         string stdout = command.Execute();
         if (string.IsNullOrWhiteSpace(stdout)) throw new InvalidOperationException("设备没有返回 CLI JSON；请先安装 OTA runtime，并检查管理员的 sudo 权限。");
         return Protocol.Decode(stdout);

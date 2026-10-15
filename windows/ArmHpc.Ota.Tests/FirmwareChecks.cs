@@ -7,6 +7,14 @@ public static class FirmwareChecks
     static JsonElement J(object value)=>JsonSerializer.SerializeToElement(value);
     public static async Task Run(Action<bool,string> check,Action<Action,string> refused)
     {
+        var timeout=typeof(SshRunner).GetMethod("DefaultCommandTimeout",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!;
+        TimeSpan Timeout(string operation,string action)=>(TimeSpan)timeout.Invoke(null,new object[]{operation,new[]{action}})!;
+        check(Timeout("boot","plan")==TimeSpan.FromMinutes(60) && Timeout("boot","apply")==TimeSpan.FromMinutes(60),
+              "paired firmware validation and backup have a large-payload SSH deadline");
+        check(Timeout("boot","rollback")==TimeSpan.FromMinutes(60) && Timeout("boot","restore")==TimeSpan.FromMinutes(60),
+              "BOOT recovery has the same long-running SSH deadline");
+        check(Timeout("boot","status")==TimeSpan.FromMinutes(3) && Timeout("status","")==TimeSpan.FromMinutes(3),
+              "status queries retain their shorter SSH deadline");
         string directory=Path.Combine(Path.GetTempPath(),"armhpc-firmware-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(directory);
         string package=Path.Combine(directory,"firmware.tar.xz");File.WriteAllText(package,"fixture bytes");
         try
