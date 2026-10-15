@@ -75,9 +75,7 @@ jobs:
       - name: Install fixture tools
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y squashfs-tools u-boot-tools zstd xz-utils gcc
       - name: Existing Python suite
-        run: python -m pytest tests --junitxml="$RUNNER_TEMP/python.xml"
-      - name: Isolated serial PTY fixture
-        run: sudo --preserve-env=PYTHONPATH "$(command -v python)" -m pytest tests/test_serial_pty.py --junitxml="$RUNNER_TEMP/serial-pty.xml"
+        run: sudo --preserve-env=PYTHONPATH,LD_LIBRARY_PATH "$(command -v python)" -m pytest tests --junitxml="$RUNNER_TEMP/python.xml"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
