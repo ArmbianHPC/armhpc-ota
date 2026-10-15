@@ -1,3 +1,2 @@
 # SPDX-License-Identifier: GPL-3.0-only
-pytest==8.4.2
-pytest-subtests==0.14.2
+pytest==9.0.3
