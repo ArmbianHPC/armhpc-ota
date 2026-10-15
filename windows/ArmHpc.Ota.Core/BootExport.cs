@@ -8,6 +8,26 @@ namespace ArmHpc.Ota.Core;
 
 public static class PrivateBootExport
 {
+    public static void Descriptor(string directory,Device device,JsonElement task)
+    {
+        if(Protocol.Text(task,"device_id")!=device.DeviceId || !Guid.TryParseExact(Protocol.Text(task,"task_id"),"D",out _))
+            throw new InvalidOperationException("BOOT 导出任务不属于已认证设备。");
+        string root=Path.GetFullPath(directory);
+        var files=task.GetProperty("backups").EnumerateObject().ToDictionary(p=>p.Name,p=>new{
+            bytes=p.Value.GetProperty("bytes").GetInt64(),sha256=Protocol.Text(p.Value,"sha256")});
+        foreach(var item in task.GetProperty("backups").EnumerateObject())Verify(Destination(root,item.Name),item.Value);
+        string path=Path.Combine(root,"BOOT-export.json"),partial=path+".partial";
+        if((File.Exists(path) && File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint)) ||
+           (File.Exists(partial) && File.GetAttributes(partial).HasFlag(FileAttributes.ReparsePoint)))
+            throw new IOException("BOOT 导出清单不能是链接。");
+        var descriptor=new{protocol=1,kind="private-boot-export",task_id=Protocol.Text(task,"task_id"),device_id=device.DeviceId,
+            boot=task.GetProperty("boot"),files,
+            emmc_cid_sha256=Protocol.Text(task,"emmc_cid_sha256"),
+            recovery=task.TryGetProperty("recovery",out var recovery)?recovery:(JsonElement?)null};
+        using(var stream=File.Open(partial,FileMode.Create,FileAccess.Write))
+        {JsonSerializer.Serialize(stream,descriptor,new JsonSerializerOptions{WriteIndented=true});stream.Flush(true);}
+        File.Move(partial,path,true);
+    }
     public static string Destination(string directory,string name)
     {
         if(name is not ("BOOT-original.img" or "BOOT-rescue.img" or "BOOT-rescue.img.xz"))throw new ArgumentException("只导出私有 BOOT 备份。");
@@ -45,6 +65,7 @@ public sealed partial class SshRunner
                 using(var output=File.Open(partial,FileMode.Create,FileAccess.Write)){client.DownloadFile(remote,output);output.Flush(true);}
                 PrivateBootExport.Verify(partial,item.Value);File.Move(partial,destination,true);log("private-boot-export:"+item.Name);
             }
+            PrivateBootExport.Descriptor(directory,device,task);
         },token);
     }
 }
@@ -115,6 +136,7 @@ public sealed partial class SerialRunner
                 await session.StreamDownload(command,partial,item.Value.GetProperty("bytes").GetInt64(),Protocol.Text(item.Value,"sha256"),log,token);
                 PrivateBootExport.Verify(partial,item.Value);File.Move(partial,destination,true);
             }
+            PrivateBootExport.Descriptor(directory,device,task);
             return true;
         },token);
 }

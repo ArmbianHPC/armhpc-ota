@@ -1,0 +1,71 @@
+{
+  "id": "wxy-oesp-v22",
+  "architecture": "arm64",
+  "compatible": [
+    "armhpc,oes1plus-v22",
+    "onethingcloud,oes-plus",
+    "amlogic,s922x",
+    "amlogic,g12b"
+  ],
+  "layout": "oesp-mbr-squashfs-ab-v1",
+  "anchor_abi": "armhpc-anchor-amlogic-mbr-v1",
+  "sector_size": 512,
+  "partition_table": "dos",
+  "boot_fstype": "vfat",
+  "boot_start": 204800,
+  "boot_sectors": 1048576,
+  "rescue_a_start": 1253376,
+  "rescue_a_sectors": 1048576,
+  "rescue_b_start": 2301952,
+  "shared_start": 3350528,
+  "minimum_emmc_bytes": 7516192768,
+  "protected_prefix_bytes": 104857600,
+  "disk_tail_reserved_sectors": 0,
+  "system_bytes": 68719476736,
+  "partition_numbers": {
+    "boot": 1,
+    "rescue_a": 2,
+    "rescue_b": 3,
+    "shared": 4
+  },
+  "labels": {
+    "boot": "OESP_BOOT",
+    "rescue_a": "OESP_RESCUE_A",
+    "rescue_b": "OESP_RESCUE_B",
+    "shared": "OTA_SHARED",
+    "system": "OESP_ROOT",
+    "data": "OESP_DATA"
+  },
+  "watchdog": "/dev/watchdog0",
+  "watchdog_driver": "Meson GXBB Watchdog",
+  "watchdog_trial_enabled": false,
+  "console": "ttyAML0,115200",
+  "hardware_gate_required": true,
+  "write_enabled": true,
+  "development_ota_supported": true,
+  "fixed_boot_only": true,
+  "kernel_ota_supported": false,
+  "boot_maintenance_supported": true,
+  "watchdog_diagnostics_supported": true,
+  "bootstrap_prepartitioned_only": true,
+  "rescue_fstype": "squashfs",
+  "trailer_bytes": 65536,
+  "overlay_reserve_bytes": 536870912,
+  "rescue_payload_limit_bytes": 469762048,
+  "management_interfaces": [
+    "eth0",
+    "eth1"
+  ],
+  "hardware": {
+    "pcb": "oes1plus-v2.2",
+    "ram_bytes": 4294967296,
+    "emmc": "KLM8G1GETF",
+    "net0": "rtl8211f",
+    "net1": "rtl8153b",
+    "sata": "asm1064",
+    "identify_interfaces": [
+      "eth0"
+    ],
+    "usb_console": true
+  }
+}

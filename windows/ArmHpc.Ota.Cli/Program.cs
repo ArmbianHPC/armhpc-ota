@@ -10,13 +10,14 @@ static string Password()
     Console.Error.WriteLine();return value.ToString();
 }
 const string Help="""
-ARMHPC OTA controller 1.1.0 — SSH / USB serial automation
+ARMHPC OTA controller 1.1.4 — SSH / USB serial automation
 
   ARMHPC-OTA-CLI command --ssh <IPv4> [--ssh <IPv4> ...] --command "armhpc ..."
       [--devices-csv <inventory.csv> | --all-managed] [--hostname <name>] [--exact-hostname]
       [--concurrency 1..8] [--ignore-unknown] [--ignore-fingerprint] [--pilot]
       [--scan-range <approved-cidr>] [--reboot-timeout 180] [--yes] [--json]
   ARMHPC-OTA-CLI boot-export (--ssh <IPv4> | --serial COM8) --output-directory <private-folder>
+  ARMHPC-OTA-CLI usb-rescue --usb-tool-directory <folder> --export <BOOT-export.json> [--prepare | --yes] [--json]
   ARMHPC-OTA-CLI ports [--json]
   ARMHPC-OTA-CLI status --ssh <IPv4> [--port 22]
   ARMHPC-OTA-CLI status --serial COM8 [--baud-rate 115200]
@@ -26,7 +27,7 @@ ARMHPC OTA controller 1.1.0 — SSH / USB serial automation
       [--allow-http] [--release <id>] [--target all|system|rescue]
       [--bundle <signed-maintenance.tar.xz>] [--ca <public-ca.pem>]
       [--scan-range <approved-cidr>] [--serial-reconnect COM9]
-      [--minimum-agent 1.0.0] [--yes] [--json]
+      [--minimum-agent 1.1.4] [--yes] [--json]
   ARMHPC-OTA-CLI resume --task <local-automation-id> [--bundle <same-hash-relocated-package>]
 
 Authentication: --username root; password is entered locally or read from --password-env <name>.
@@ -40,10 +41,10 @@ Watchdog/BOOT commands use "command"; destructive diagnostics require one device
 Reboot / connection loss is observed by persistent device, maintenance and OTA job IDs.
 """;
 if(args.Length==0 || args.Contains("--help") || args.Contains("-h")){Console.WriteLine(Help);return 0;}
-if(args[0]=="--version"){Console.WriteLine("1.1.0");return 0;}
+if(args[0]=="--version"){Console.WriteLine("1.1.4");return 0;}
 if(args[0]=="command")return await ArmHpc.Ota.Cli.CommandCli.Run(args.Skip(1).ToArray());
-var flags=new HashSet<string>{"--yes","--json","--remember","--allow-http","--ignore-fingerprint"};
-var valued=new HashSet<string>{"--ssh","--serial","--port","--baud-rate","--source","--release","--target","--bundle","--ca","--scan-range","--serial-reconnect","--minimum-agent","--username","--password-env","--key","--passphrase-env","--hostkey-system","--hostkey-rescue","--device-id","--task","--package","--output-directory"};
+var flags=new HashSet<string>{"--yes","--json","--remember","--allow-http","--ignore-fingerprint","--prepare"};
+var valued=new HashSet<string>{"--ssh","--serial","--port","--baud-rate","--source","--release","--target","--bundle","--ca","--scan-range","--serial-reconnect","--minimum-agent","--username","--password-env","--key","--passphrase-env","--hostkey-system","--hostkey-rescue","--device-id","--task","--package","--output-directory","--usb-tool-directory","--export"};
 var values=new Dictionary<string,List<string>>();bool json=args.Contains("--json");
 string? One(string name)=>values.GetValueOrDefault(name)?.LastOrDefault();
 bool Has(string name)=>values.ContainsKey(name);
@@ -55,6 +56,15 @@ try
         string option=args[i];if(!flags.Contains(option) && !valued.Contains(option))throw new ArgumentException("未知参数："+option);
         string value=flags.Contains(option)?"true":++i<args.Length?args[i]:throw new ArgumentException("参数缺少值："+option);
         if(!values.TryGetValue(option,out var list))values[option]=list=[];list.Add(value);
+    }
+    if(args[0]=="usb-rescue")
+    {
+        if(!Has("--prepare") && !Has("--yes"))throw new ArgumentException("先用 --prepare 校验；执行内存启动需 --yes。");
+        using var cancelled=new CancellationTokenSource();Console.CancelKeyPress+=(_,e)=>{e.Cancel=true;cancelled.Cancel();};
+        var usbResult=await UsbRescue.Run(One("--usb-tool-directory")??throw new ArgumentException("提供 --usb-tool-directory。"),
+            One("--export")??throw new ArgumentException("提供 --export BOOT-export.json。"),Has("--prepare"),
+            line=>Console.Error.WriteLine(line),cancelled.Token);
+        Emit(usbResult);return 0;
     }
     if(Has("--remember") && !OperatingSystem.IsWindows())throw new ArgumentException("Linux 不保存登录密码；使用 SSH 私钥或每次输入凭据。");
     if(args[0]=="ports"){Emit(new{ports=SerialRunner.Ports()});return 0;}
@@ -115,7 +125,7 @@ try
                 exported_backup_sha256=Protocol.Text(bootTask.GetProperty("backups").GetProperty("BOOT-rescue.img.xz"),"sha256")});
             return 0;
         }
-        var options=new UpgradeOptions(One("--source")??(args[0]=="tools-update" || Has("--package")?"":throw new ArgumentException("需要 --package 本地 OTA 包。")),One("--release"),One("--target")??"all",Has("--allow-http"),(One("--bundle")??(File.Exists(Path.Combine(AppContext.BaseDirectory,"maintenance/maintenance.tar.xz"))?Path.Combine(AppContext.BaseDirectory,"maintenance/maintenance.tar.xz"):null)),Ca:One("--ca"),MinimumAgent:One("--minimum-agent")??"1.0.0",Ranges:values.GetValueOrDefault("--scan-range")?.ToArray(),ToolsOnly:args[0]=="tools-update",Package:One("--package"));
+        var options=new UpgradeOptions(One("--source")??(args[0]=="tools-update" || Has("--package")?"":throw new ArgumentException("需要 --package 本地 OTA 包。")),One("--release"),One("--target")??"all",Has("--allow-http"),(One("--bundle")??(File.Exists(Path.Combine(AppContext.BaseDirectory,"maintenance/maintenance.tar.xz"))?Path.Combine(AppContext.BaseDirectory,"maintenance/maintenance.tar.xz"):null)),Ca:One("--ca"),MinimumAgent:One("--minimum-agent")??"1.1.4",Ranges:values.GetValueOrDefault("--scan-range")?.ToArray(),ToolsOnly:args[0]=="tools-update",Package:One("--package"));
         task=AutomaticTask.Create(id,options);
         if(!Has("--yes"))
         {

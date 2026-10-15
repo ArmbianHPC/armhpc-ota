@@ -1,4 +1,4 @@
-include LICENSE COPYRIGHT VERSION README.md THIRD-PARTY-NOTICES.md REUSE.toml global.json DEPENDENCIES.lock.json
+include requirements-test.txt LICENSE COPYRIGHT VERSION README.md THIRD-PARTY-NOTICES.md REUSE.toml global.json DEPENDENCIES.lock.json
 recursive-include LICENSES *.txt
 recursive-include src *.py *.json
 recursive-include boot *.py *.c initramfs-*

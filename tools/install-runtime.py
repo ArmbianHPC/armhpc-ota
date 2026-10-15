@@ -37,9 +37,13 @@ if live:
         elif existing.exists():
             target = backup / relative; target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(existing, target)
     rescue = (root / 'etc/armhpc/rescue-environment').exists()
+    profile = __import__('json').loads((root/'etc/armhpc/ota.json').read_text()).get('profile','wxy-oect-original')
+    if profile.startswith('wxy-oect-original'): board='wxy-oect-original'
+    elif profile=='wxy-oesp-v22': board=profile
+    else:parser.error('Unknown board; install through a signed maintenance package')
     overlays = [framework / 'components/common/rootfs-overlay',
                 framework / ('components/rescue/rootfs-overlay' if rescue else 'components/k3s/rootfs-overlay'),
-                framework / 'adapters/boards/wxy-oect-original/rootfs-overlay']
+                framework / 'adapters/boards'/board/'rootfs-overlay']
     for overlay in overlays:
         library = overlay / 'usr/lib/armhpc'
         if library.exists():

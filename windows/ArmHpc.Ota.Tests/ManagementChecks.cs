@@ -7,6 +7,26 @@ public static class ManagementChecks
 {
     public static async Task Run(Action<bool,string> check,Action<Action,string> refused)
     {
+        string exportDirectory=Path.Combine(Path.GetTempPath(),"armhpc-boot-export-"+Guid.NewGuid());
+        try
+        {
+            string id=Guid.NewGuid().ToString("D");var exportDevice=new Device{DeviceId="export-device"};
+            byte[] payload="private boot backup"u8.ToArray();string digest=Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(payload));
+            var backups=new Dictionary<string,object>();
+            foreach(string name in new[]{"BOOT-original.img","BOOT-rescue.img","BOOT-rescue.img.xz"})
+            {File.WriteAllBytes(PrivateBootExport.Destination(exportDirectory,name),payload);backups[name]=new{bytes=payload.Length,sha256=digest};}
+            var exportTask=JsonSerializer.SerializeToElement(new{task_id=id,device_id=exportDevice.DeviceId,boot=new{start_lba=204800,sectors=1048576},backups,
+                emmc_cid_sha256=new string('a',64),recovery=new{board="wxy-oesp-v22",slot="a"}});
+            PrivateBootExport.Descriptor(exportDirectory,exportDevice,exportTask);
+            using var descriptor=JsonDocument.Parse(File.ReadAllText(Path.Combine(exportDirectory,"BOOT-export.json")));
+            check(Protocol.Text(descriptor.RootElement,"task_id")==id && Protocol.Text(descriptor.RootElement,"device_id")==exportDevice.DeviceId,
+                "private BOOT export descriptor binds original task and device");
+            refused(()=>PrivateBootExport.Descriptor(exportDirectory,new Device{DeviceId="other-device"},exportTask),"BOOT descriptor rejects a different device");
+            File.AppendAllText(Path.Combine(exportDirectory,"BOOT-rescue.img"),"changed");
+            refused(()=>PrivateBootExport.Descriptor(exportDirectory,exportDevice,exportTask),"BOOT descriptor is not replaced after a failed file hash");
+            check(Commands.Build("boot",["restore","--request-id",id,"--execute"],false,true).Contains("'restore'"),
+                "BOOT-only restore uses the existing public protocol");
+        }finally{if(Directory.Exists(exportDirectory))Directory.Delete(exportDirectory,true);}
         var normal=new Device{DeviceId="normal",Hostname="armhpc-010f",Address="192.168.1.10",Name="worker",Mode="system",Selected=true};
         var rescue=new Device{DeviceId="rescue",Hostname="armhpc-rescue-72ac",Address="192.168.1.11",Mode="rescue"};
         check(DeviceSelection.Matches(rescue,"RESCUE") && DeviceSelection.Matches(normal,"192.168.1.10"),"hostname search ignores case and accepts address fallback");

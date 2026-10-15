@@ -10,21 +10,33 @@ from .io import sha256, fsync_dir
 from .metadata import sign,verify,validate_manifest,identifier,anchor_digest
 
 
-def build(rescue_manifest,rootfs,kernel,dtb,initramfs,recovery_initramfs,output,key,key_id,trust,sequence,original_kernel,original_dtb):
+def build(rescue_manifest,rootfs,kernel,dtb,initramfs,recovery_initramfs,output,key,key_id,trust,sequence,original_kernel,original_dtb,system_rootfs=None):
     raw=Path(rescue_manifest).read_bytes();m=validate_manifest(verify(raw,Path(trust)))
-    require(m['layout']=='oect-squashfs-ab-v2','boot_layout','BOOT candidate requires direct SquashFS Rescue A/B')
+    from .config import Config
+    from .boot_platform import supported
+    board=Config(profile=m['board'],storage_layout=m['layout']).board()
+    require(supported(board),'boot_layout','BOOT candidate requires a supported SquashFS Rescue A/B adapter')
     require(isinstance(sequence,int) and sequence>0,'boot_sequence','Use a new increasing BOOT sequence')
     sources={'rescue.manifest.json':Path(rescue_manifest),'rescue-rootfs':Path(rootfs),'kernel':Path(kernel),
              'dtb':Path(dtb),'initramfs':Path(initramfs),'recovery-initramfs':Path(recovery_initramfs)}
+    if system_rootfs:
+        sources['system-rootfs']=Path(system_rootfs)
     entries={name:{'size':p.stat().st_size,'sha256':sha256(p)} for name,p in sources.items()}
     for name in ('rootfs','kernel','dtb','initramfs'):
         a=next(a for a in m['artifacts'] if a['role']=='rescue-'+name)
         file='rescue-rootfs' if name=='rootfs' else name
         require(a['size']==entries[file]['size'] and a['sha256']==entries[file]['sha256'],'boot_pair','Candidate differs from signed Rescue release',file=file)
+    if system_rootfs:
+        for name in ('rootfs','kernel','dtb','initramfs'):
+            a=next(a for a in m['artifacts'] if a['role']=='system-'+name)
+            file='system-rootfs' if name=='rootfs' else name
+            require(a['size']==entries[file]['size'] and a['sha256']==entries[file]['sha256'],
+                    'boot_system_pair','System payload differs from the paired BOOT release',file=file)
+        require(m['kernels']['system']==m['kernels']['rescue'],'boot_system_pair','System and Rescue kernels differ')
     for name in ('initramfs','recovery-initramfs'):
         with sources[name].open('rb') as f:require(f.read(4)!=bytes.fromhex('27051956'),'raw_initramfs','Wrapped uImage initramfs is not accepted')
     files=[entries[k]['sha256'] for k in ('kernel','initramfs','dtb')]
-    payload={'kind':'boot-maintenance','protocol':1,'minimum_agent':'0.3.4','release':m['release'],
+    payload={'kind':'boot-maintenance','protocol':1,'minimum_agent':'1.1.4' if board['id']=='wxy-oesp-v22' else ('1.1.1' if system_rootfs else '0.3.4'),'release':m['release'],
              'sequence':sequence,'board':m['board'],'architecture':m['architecture'],'layout':m['layout'],
              'anchor_abi':m['anchor_abi'],'kernel_release':m['kernels']['rescue'],'files':entries,
              'requires':{'kernel_sha256':sha256(original_kernel),'dtb_sha256':sha256(original_dtb)},
@@ -47,6 +59,7 @@ def main(argv=None):
     for name in ('rescue-manifest','rootfs','kernel','dtb','initramfs','recovery-initramfs','output','key','key-id','trust','original-kernel','original-dtb'):
         p.add_argument('--'+name,required=True)
     p.add_argument('--sequence',required=True,type=int)
+    p.add_argument('--system-rootfs')
     a=vars(p.parse_args(argv));a['rescue_manifest']=a.pop('rescue_manifest')
     print(__import__('json').dumps(build(**a),indent=2))
 

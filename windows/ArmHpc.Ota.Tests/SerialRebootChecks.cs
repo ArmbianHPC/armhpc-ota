@@ -34,7 +34,7 @@ public static class SerialRebootChecks
         {
             state=new();device=Device();var saved=new List<AutomaticTask>();
             using var router=new ConnectionRouter(state.Open);
-            var original=AutomaticTask.Create(device.DeviceId,new UpgradeOptions("",Bundle:file,ToolsOnly:true));
+            var original=AutomaticTask.Create(device.DeviceId,new UpgradeOptions("",Bundle:file,ToolsOnly:true,MinimumAgent:"1.0.0"));
             var result=await AutomaticUpgrade.Run(original,new UpgradeConnection(router,device,Credentials(),[]),saved.Add,_=>{},
                 delay:_=>Task.CompletedTask,maintenancePolls:5);
             check(result.Stage=="succeeded" && state.Installs==1 && state.MaintenanceId==original.MaintenanceId,"serial maintenance losing its reboot reply resumes the original maintenance ID without duplicate installation");

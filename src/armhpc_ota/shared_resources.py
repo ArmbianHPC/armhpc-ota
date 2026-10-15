@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
-"""Signed framework code resources; writable identity/configuration is excluded."""
+"""Signed framework code and board hardware defaults; identity and network settings are excluded."""
 from pathlib import Path, PurePosixPath
 from .errors import require
 from .io import read_json, sha256
@@ -11,8 +11,16 @@ COMPLETION_TARGETS = frozenset((
     'usr/share/bash-completion/completions/armhpc-rescue',
     'usr/share/bash-completion/completions/armhpc-kube',
 ))
+SERVICE_TARGETS = frozenset(('etc/systemd/system/armhpc-fan.service',
+                             'etc/systemd/system/armhpc-performance.service',
+                             'etc/systemd/system/armhpc-performance.timer'))
+BOARD_TARGETS = frozenset(('etc/armhpc/led.json', 'etc/armhpc/phy-led.json',
+                          'etc/armhpc/fan.json', 'etc/armhpc/usb-console.json',
+                          'etc/armhpc/network-ports.json', 'etc/armhpc/initramfs-firmware',
+                          'usr/lib/firmware/rtl_nic/rtl8153b-2.fw',
+                          'usr/share/doc/armhpc-firmware/LICENCE.rtlwifi_firmware.txt'))
 
-def files(payload, role=None):
+def files(payload, role=None, board=None):
     root=Path(payload); manifest=root/'compat/framework-files.json'
     if not manifest.is_file():return {}
     value=read_json(manifest)
@@ -26,14 +34,24 @@ def files(payload, role=None):
         library=relative.parts[:3]==('usr','lib','armhpc') and len(relative.parts)==4 and relative.suffix=='.py'
         notice=relative.parts[:4]==('usr','share','doc','armhpc-framework') and len(relative.parts)==5 and relative.suffix=='.txt'
         completion=item['target'] in COMPLETION_TARGETS
-        require(library or notice or completion,'framework_resources','Framework resource is not code, completion or a license')
-        require(item['target'] not in names,'framework_resources','Duplicate framework target');names.add(item['target'])
+        service=item['target'] in SERVICE_TARGETS
+        board_target=item['target'] in BOARD_TARGETS
+        require(library or notice or completion or service or board_target,'framework_resources','Framework resource is not code, completion, a service, board hardware or a license')
         scope=item.get('scope');require(scope in ('common','board','rescue','normal'),'framework_resources','Unknown framework scope')
-        require(not completion or scope=='common','framework_resources','Completion resources must be shared by both environments')
+        owner=item.get('board')
+        require(owner is None or (scope=='board' and owner in ('wxy-oect-original','wxy-oesp-v22')),
+                'framework_resources','Invalid board resource selector')
+        key=(item['target'],owner)
+        require(key not in names,'framework_resources','Duplicate framework target');names.add(key)
+        require(not board_target or (scope=='board' and owner is not None),
+                'framework_resources','Hardware resources require an explicit board')
+        require(not (completion or service) or scope=='common','framework_resources','Shared resources must use common scope')
         source=root.joinpath(*source_name.parts)
         require(source_name.parts[:2]==('compat','framework') and source.is_file() and not source.is_symlink() and
                 source.resolve().is_relative_to(root.resolve()) and sha256(source)==item['sha256'],
                 'framework_resources','Framework resource checksum/path differs')
-        if scope in ('common','board') or (scope=='normal' and role=='system') or (scope=='rescue' and role and role.startswith('rescue_')):
+        selected = scope=='common' or (scope=='board' and (owner is None or owner==board)) or (scope=='normal' and role=='system') or (scope=='rescue' and role and role.startswith('rescue_'))
+        if selected:
+            require(item['target'] not in result,'framework_resources','Overlapping selected framework target')
             result[item['target']]=source
     return result

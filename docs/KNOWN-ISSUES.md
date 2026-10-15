@@ -1,5 +1,9 @@
-# 已知问题
+# Known issues
 
-OECT 的硬件看门狗自然超时后可能停在白灯状态，网络和 USB 虚拟串口不恢复。需要完全断开设备电源及 USB，再重新上电恢复；普通软件重启可正常恢复。
+[简体中文](KNOWN-ISSUES.zh-CN.md)
 
-虚拟串口在 Linux USB gadget 启动后提供登录和日志，不提供 DDR/SPL/U-Boot 日志。硬件恢复状态字段保持实际值。
+On OECT, a natural hardware-watchdog timeout can leave the device at a white light with no network or USB console. Disconnect both power and USB completely, then power it on again to recover. Ordinary software reboot recovers normally.
+
+OESP NET1 currently enumerates over USB 2.0 at 480 Mbit/s. A 1000 Mbit/s Ethernet negotiation does not imply gigabit throughput through that USB connection.
+
+The USB console starts with the Linux gadget; it cannot capture DDR, SPL or U-Boot output. Hardware status fields report their actual acceptance state.

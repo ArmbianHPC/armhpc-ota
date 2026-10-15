@@ -25,7 +25,7 @@ class Engine:
         self.transport = Transport(local=bool(config.simulate), config=config)
 
     def status(self, job_id=None):
-        device = discover(self.config)
+        device = discover(self.config,recovery=True)
         job = self.store.read(job_id)
         try:
             control = self.store.control()
@@ -55,7 +55,8 @@ class Engine:
                 'clock': self.clock.snapshot(live=True),
                 'watchdog': __import__('armhpc_ota.watchdog', fromlist=['status']).status(self),
                 'boot_maintenance': __import__('armhpc_ota.boot_maintenance', fromlist=['status']).status(self.config),
-                'tools': __import__('armhpc_ota.maintenance', fromlist=['status']).status(self.config)}
+                'tools': __import__('armhpc_ota.maintenance', fromlist=['status']).status(self.config),
+                'hardware': __import__('armhpc_ota.hardware',fromlist=['report']).report(self.config,device)}
 
     def _baseline_status(self):
         result = {}
@@ -141,6 +142,9 @@ class Engine:
             signed = read_json(self.config.state / 'manifests' / (manifest['release'] + '.json'))
             require(signed['key_id'] in control['anchor_key_ids'], 'anchor_trust',
                     'Signing key is absent from the fixed bootstrap; use the dedicated trust/anchor maintenance procedure')
+        if control:
+            from .platform import require_fixed_boot
+            require_fixed_boot(self.config, manifest, control)
 
     def plan(self, manifest, target='all', recovery=False):
         if not self.config.simulate:
@@ -371,9 +375,11 @@ class Engine:
     def worker(self):
         if not self.config.simulate and Path('/run/armhpc-ota-maintenance-recovery').exists(): return None
         from .boot_maintenance import require_idle
-        require_idle(self.config)
         with self.store.lock():
             job = self.store.read()
+            require_idle(self.config,job_id=job['job_id'] if job else None)
+            from .boot_maintenance import finish_paired_system
+            if finish_paired_system(self,job):return job
             if not job or job['stage'] in TERMINAL:
                 return job
             try:
@@ -575,7 +581,10 @@ class Engine:
                            'slot': control['confirmed']['rescue']['slot'], 'trial': False}
         self.store.write_control(control)
         self.backend.collect_old_baselines()
-        return self.store.save(job, 'succeeded', 'Upgrade confirmed by boot, storage, network and SSH health checks')
+        result=self.store.save(job, 'succeeded', 'Upgrade confirmed by boot, storage, network and SSH health checks')
+        from .boot_maintenance import finish_paired_system
+        finish_paired_system(self,result)
+        return result
 
     def cancel(self, job_id=None):
         with writer_lock(self.config.state / 'admission.lock'):

@@ -81,11 +81,12 @@ def verify_boot(config, selected):
     return result
 
 
-def fallback(manifest_path, root, trust, target='rescue', slot='a'):
+def fallback(manifest_path, root, trust, target='rescue', slot='a', board=None):
     """A slot-local signed boot copy does not depend on readable shared control."""
     from .metadata import verify, validate_manifest
     manifest = validate_manifest(verify(Path(manifest_path).read_bytes(), trust))
-    require(manifest['board'] == 'wxy-oect-original' and manifest['architecture'] == 'arm64',
+    expected = board or {'id':'wxy-oect-original','architecture':'arm64'}
+    require(manifest['board'] == expected['id'] and manifest['architecture'] == expected['architecture'],
             'fallback_board', 'Fallback belongs to a different board')
     result = {}
     for name in ('kernel', 'initramfs', 'dtb'):

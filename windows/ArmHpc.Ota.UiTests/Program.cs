@@ -97,7 +97,7 @@ internal static class Program
 {
     [STAThread] static int Main(string[] args)
     {
-        string output=Path.GetFullPath(args.Length>0?args[0]:"ui-result.png");Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+        string output=Path.GetFullPath(args.Length>0?args[0]:Path.Combine(Path.GetTempPath(),"armhpc-ui-"+Guid.NewGuid().ToString("N"),"ui-result.png"));Directory.CreateDirectory(Path.GetDirectoryName(output)!);
         var app=new App();app.InitializeComponent();
         var window=new MainWindow(Path.Combine(Path.GetDirectoryName(output)!,"ui-state-"+Guid.NewGuid().ToString("N")));
         if(window.DeviceGrid.Items.Count!=0)throw new InvalidOperationException("Fresh application must have no fabricated devices");

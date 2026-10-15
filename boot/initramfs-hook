@@ -5,15 +5,35 @@ PREREQ=""
 prereqs() { echo "$PREREQ"; }
 case "${1:-}" in prereqs) prereqs; exit 0;; esac
 . /usr/share/initramfs-tools/hook-functions
-manual_add_modules dw_wdt
-manual_add_modules ahci
-manual_add_modules ahci_platform
-manual_add_modules stmmac
-manual_add_modules dwmac_rk
-manual_add_modules phy_rockchip_naneng_combphy
+if [ -f /etc/armhpc/initramfs-modules ]; then
+    while IFS= read -r module; do
+        case "$module" in ''|\#*) continue;; esac
+        manual_add_modules "$module"
+    done < /etc/armhpc/initramfs-modules
+else
+    for module in dw_wdt ahci ahci_platform stmmac dwmac_rk phy_rockchip_naneng_combphy; do
+        manual_add_modules "$module"
+    done
+fi
 manual_add_modules ext4
 manual_add_modules squashfs
 manual_add_modules overlay
+if [ -f /etc/armhpc/initramfs-firmware ]; then
+    while IFS= read -r firmware; do
+        case "$firmware" in ''|\#*) continue;; esac
+        case "$firmware" in /*|*..*|*\\*) echo "Invalid firmware path" >&2; exit 1;; esac
+        test -f "/lib/firmware/$firmware" || { echo "Missing firmware: $firmware" >&2; exit 1; }
+        if copy_file firmware "/lib/firmware/$firmware" "/lib/firmware/$firmware"; then
+            :
+        else
+            result=$?
+            [ "$result" = 1 ] || exit "$result"
+        fi
+        destination="$DESTDIR/lib/firmware/$firmware"
+        [ -f "$destination" ] || destination="$DESTDIR/usr/lib/firmware/$firmware"
+        cmp -s "/lib/firmware/$firmware" "$destination" || { echo "Firmware copy differs: $firmware" >&2; exit 1; }
+    done < /etc/armhpc/initramfs-firmware
+fi
 copy_exec /usr/bin/python3.11 /usr/bin/python3.11
 copy_exec /usr/sbin/kexec /usr/sbin/kexec
 copy_exec /usr/sbin/blkid /usr/sbin/blkid

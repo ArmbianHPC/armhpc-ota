@@ -34,7 +34,7 @@ public sealed record ArmHpcRequest(string Program,string[] Arguments,bool Writes
         {
             program="armhpc-rescue";
             if(args.FirstOrDefault()=="rescue")args[0]="boot";
-            else if(args.Length>0 && args[0] is not ("watchdog" or "ota" or "usb-console" or "led" or "identify" or "configuration" or "reboot" or "--help" or "-h"))
+            else if(args.Length>0 && args[0] is not ("fan" or "watchdog" or "ota" or "usb-console" or "led" or "identify" or "configuration" or "reboot" or "--help" or "-h"))
                 throw new ArgumentException("该命令仅适用于正常系统。");
         }
         if(program=="armhpc-rescue" && mode!="rescue")throw new ArgumentException("该命令需要设备先进入 Rescue。");
@@ -52,7 +52,9 @@ public sealed record CommandPreset(string Name,string Command,bool Development=f
 public static class ArmHpcCommands
 {
     public static IReadOnlyList<CommandPreset> Presets {get;} = [
-        new("看门狗状态","armhpc watchdog status --json",true),new("看门狗实验报告","armhpc watchdog report --json",true),new("BOOT 维护状态","armhpc ota boot status --json",true),
+        new("风扇状态","armhpc fan status --json"),new("风扇自动温控","armhpc fan set --mode auto --yes --json"),
+        new("风扇开启","armhpc fan set --mode on --yes --json"),new("风扇关闭（保留高温保护）","armhpc fan set --mode off --yes --json"),
+        new("看门狗状态","armhpc watchdog status --json",true),new("看门狗诊断报告","armhpc watchdog report --json",true),new("BOOT 维护状态","armhpc ota boot status --json",true),
         new("主机名","armhpc hostname show --json"),new("网络配置和事务","armhpc network show --json"),
         new("主机名向导","armhpc hostname configure"),new("网络配置向导","armhpc network configure"),
         new("ARMHPC 帮助","armhpc --help"),new("OTA 状态和版本","armhpc ota status --json"),
@@ -130,9 +132,9 @@ public static class ArmHpcCommands
         if(tokens.Count==0 || tokens[0] is not ("armhpc" or "armhpc-rescue" or "armhpc-kube"))throw new ArgumentException("命令必须以 armhpc、armhpc-rescue 或 armhpc-kube 开头。");
         string program=tokens[0];string[] args=tokens.Skip(1).ToArray();string first=args.FirstOrDefault()??"--help";
         if(args.Length==0)args=["--help"];
-        string[] allowed=program=="armhpc"?["--help","-h","watchdog","ota","usb-console","led","identify","hostname","network","rescue","reboot","configuration","firstrun"]:
+        string[] allowed=program=="armhpc"?["--help","-h","fan","watchdog","ota","usb-console","led","identify","hostname","network","rescue","reboot","configuration","firstrun"]:
             program=="armhpc-kube"?["--help","-h","configuration","check"]:
-            ["--help","-h","watchdog","ota","usb-console","led","identify","boot","status","install","restore","reboot","configuration","console","provision","firstrun"];
+            ["--help","-h","fan","emmc","watchdog","ota","usb-console","led","identify","boot","status","install","restore","reboot","configuration","console","provision","firstrun"];
         if(!allowed.Contains(first))throw new ArgumentException("未知 ARMHPC 子命令。");
         if(args.Contains("--daemon") || args.Contains("--watch") || args.Contains("--simulate-root") || args.Contains("--config") || args.Contains("--worker"))throw new ArgumentException("持续观察请使用任务面板；不允许服务内部或配置重定向参数。");
         bool help=args.Contains("--help") || args.Contains("-h");
@@ -160,12 +162,24 @@ public static class ArmHpcCommands
             if(seen.Contains("--stop") && seen.Contains("--status"))throw new ArgumentException("停止和查询不能同时使用。");
         }
         if(first is "hostname" or "network" && !help)ValidateHostSettings(first,args);
-        bool writes=!help && (first is "hostname" or "network" && args.ElementAtOrDefault(1) is "set" or "configure" or "confirm" or "rollback" && !args.Contains("--plan") || first=="watchdog" && (args.ElementAtOrDefault(1) is "prepare" or "test" || args.Contains("--confirm-recovered") || args.Contains("--manual-recovery") || args.Contains("--cancel-prepared")) || first is "configuration" or "firstrun" or "provision" or "reboot" or "rescue" or "boot" ||
+        if(first=="fan" && !help)
+        {
+            if(args.ElementAtOrDefault(1) is not ("status" or "set"))throw new ArgumentException("风扇操作为 status 或 set。");
+            var seen=new HashSet<string>();
+            for(int i=2;i<args.Length;i++)
+            {
+                if(!seen.Add(args[i]))throw new ArgumentException("风扇参数不可重复。");
+                if(args[i] is "--json" or "--yes")continue;
+                if(args[i]!="--mode" || ++i>=args.Length || args[i] is not ("auto" or "on" or "off"))throw new ArgumentException("风扇模式为 auto、on 或 off。");
+            }
+            if((args[1]=="set")!=seen.Contains("--mode"))throw new ArgumentException("仅 set 需要 --mode。");
+        }
+        bool writes=!help && (first=="fan" && args.ElementAtOrDefault(1)=="set" || first=="emmc" || first is "hostname" or "network" && args.ElementAtOrDefault(1) is "set" or "configure" or "confirm" or "rollback" && !args.Contains("--plan") || first=="watchdog" && (args.ElementAtOrDefault(1) is "prepare" or "test" || args.Contains("--confirm-recovered") || args.Contains("--manual-recovery") || args.Contains("--cancel-prepared")) || first is "configuration" or "firstrun" or "provision" or "reboot" or "rescue" or "boot" ||
             first is "led" or "identify" && !args.Contains("--status") || first=="usb-console" && args.Skip(1).Any(x=>x is "start" or "stop") ||
             first is "install" or "restore" && args.Contains("--execute") ||
             first=="ota" && (args.ElementAtOrDefault(1)=="boot" && args.ElementAtOrDefault(2) is "apply" or "rollback" || args.ElementAtOrDefault(1) is "apply" or "recover" or "cancel" or "retry" or "receive" || args.ElementAtOrDefault(1)=="bootstrap" && args.Contains("--apply") || args.ElementAtOrDefault(1)=="source" && args.ElementAtOrDefault(2)=="set" || args.ElementAtOrDefault(1)=="tools" && args.ElementAtOrDefault(2)=="update"));
         bool interactive=!help && (first is "hostname" or "network" && args.ElementAtOrDefault(1)=="configure" || first is "configuration" or "firstrun" or "provision" or "console" || first is "install" or "restore" && args.Contains("--execute"));
-        if(first is "ota" or "watchdog" or "hostname" or "network" && writes && !interactive && !args.Contains("--yes"))args=[..args,"--yes"];
+        if(first is "fan" or "emmc" or "ota" or "watchdog" or "hostname" or "network" && writes && !interactive && !args.Contains("--yes"))args=[..args,"--yes"];
         return new(program,args,writes,interactive,first=="reboot" || args.Contains("--reboot"));
     }
 }

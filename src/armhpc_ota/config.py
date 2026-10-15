@@ -68,9 +68,9 @@ class Config:
     def board(self):
         identifier(self.profile)
         suffix = '-squashfs' if self.storage_layout == 'oect-squashfs-ab-v2' else ''
-        require(self.storage_layout in (None, 'oect-ext4-ab-v1', 'oect-squashfs-ab-v2'), 'config_layout', 'Unknown storage layout')
         path = files('armhpc_ota').joinpath('profiles', self.profile + suffix + '.json')
         require(path.is_file(), 'board_unknown', 'No write adapter exists for this board')
         profile = parse_json(path.read_bytes())
+        require(self.storage_layout in (None, profile['layout']), 'config_layout', 'Layout does not match the selected board')
         require(profile.get('write_enabled') is True, 'board_disabled', 'Board write adapter is disabled')
         return profile

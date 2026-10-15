@@ -10,7 +10,7 @@ def version(project):
 def source_files(project):
     selected=('src','boot','packaging','tools','docs','tests','windows','LICENSES','.github',
               'README.md','README.zh-CN.md','LICENSE','COPYRIGHT','VERSION','THIRD-PARTY-NOTICES.md','pyproject.toml',
-              'MANIFEST.in','LICENSE-MAP.json','REUSE.toml','global.json','DEPENDENCIES.lock.json','.gitignore','.gitattributes','CHANGELOG.md')
+              'MANIFEST.in','requirements-test.txt','LICENSE-MAP.json','REUSE.toml','global.json','DEPENDENCIES.lock.json','.gitignore','.gitattributes','CHANGELOG.md')
     for name in selected:
         base=project/name
         for path in sorted(base.rglob('*')) if base.is_dir() else [base]:
@@ -29,12 +29,34 @@ def framework_files(framework):
     frame=Path(framework);rows=[]
     scopes={'common':frame/'components/common/rootfs-overlay/usr/lib/armhpc',
             'normal':frame/'components/k3s/rootfs-overlay/usr/lib/armhpc',
-            'rescue':frame/'components/rescue/rootfs-overlay/usr/lib/armhpc',
-            'board':frame/'adapters/boards/wxy-oect-original/rootfs-overlay/usr/lib/armhpc'}
+            'rescue':frame/'components/rescue/rootfs-overlay/usr/lib/armhpc'}
     for scope,directory in scopes.items():
         for path in sorted(directory.glob('*.py')):
             rows.append((path,{'scope':scope,'target':'usr/lib/armhpc/'+path.name,
                         'source':'compat/framework/'+scope+'/'+path.name,'sha256':digest(path)}))
+    for board in ('wxy-oect-original','wxy-oesp-v22'):
+        board_overlay=frame/'adapters/boards'/board/'rootfs-overlay'
+        if not board_overlay.is_dir():continue
+        candidates=list((board_overlay/'usr/lib/armhpc').glob('*.py'))
+        for name in ('led.json','phy-led.json','fan.json','usb-console.json','network-ports.json','initramfs-firmware'):
+            resource=board_overlay/'etc/armhpc'/name
+            if resource.is_file():candidates.append(resource)
+        for path in sorted(candidates):
+            target=path.relative_to(board_overlay).as_posix()
+            rows.append((path,{'scope':'board','board':board,'target':target,
+                              'source':'compat/framework/boards/'+board+'/'+target,'sha256':digest(path)}))
+        if board=='wxy-oesp-v22':
+            policy=json.loads((frame/'adapters/boards'/(board+'.json')).read_text())
+            for firmware in policy.get('firmware',[]):
+                path=frame/firmware['path']
+                if not path.is_file() or digest(path)!=firmware['sha256'] or not firmware.get('redistributable') or not firmware.get('reviewed'):
+                    raise ValueError('Missing or unaudited board firmware: '+firmware['id'])
+                target=firmware['destination'].lstrip('/').replace('lib/firmware/','usr/lib/firmware/',1)
+                rows.append((path,{'scope':'board','board':board,'target':target,
+                                  'source':'compat/framework/boards/'+board+'/'+target,'sha256':digest(path)}))
+                path=frame/firmware['license_file'];target='usr/share/doc/armhpc-firmware/'+path.name
+                rows.append((path,{'scope':'board','board':board,'target':target,
+                                  'source':'compat/framework/boards/'+board+'/'+target,'sha256':digest(path)}))
     for name in ('GPL-2.0-only','GPL-3.0-only'):
         path=frame/'LICENSES'/(name+'.txt')
         rows.append((path,{'scope':'common','target':'usr/share/doc/armhpc-framework/'+name+'.txt',
@@ -47,6 +69,11 @@ def framework_files(framework):
         'usr/share/bash-completion/completions/armhpc-kube',
     )
     overlay=frame/'components/common/rootfs-overlay'
+    for name in ('armhpc-fan.service','armhpc-performance.service','armhpc-performance.timer'):
+        service=overlay/'etc/systemd/system'/name
+        if service.is_file():
+            rows.append((service,{'scope':'common','target':'etc/systemd/system/'+name,
+                                 'source':'compat/framework/services/'+name,'sha256':digest(service)}))
     if any((overlay/name).exists() for name in completion_targets):
         for name in completion_targets:
             path=overlay/name
@@ -78,7 +105,8 @@ def build(project,output,helpers=None,windows=None,framework=None):
         for path,relative in files:add(archive,path,'armhpc-ota-'+number+'/'+relative.as_posix(),epoch)
         if framework:
             for path,item in shared:
-                relative=path.relative_to(Path(framework));add(archive,path,'armhpc-ota-'+number+'/corresponding-framework/'+relative.as_posix(),epoch)
+                if not path.relative_to(Path(framework)).parts[0]=='cache':
+                    relative=path.relative_to(Path(framework));add(archive,path,'armhpc-ota-'+number+'/corresponding-framework/'+relative.as_posix(),epoch)
     created.append(source)
     if helpers:
         if not framework:raise ValueError('Supply matching --framework-source')

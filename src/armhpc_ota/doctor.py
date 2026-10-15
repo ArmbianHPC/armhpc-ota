@@ -24,6 +24,7 @@ def inspect(engine):
     except (OTAError, OSError) as e: checks['source'] = {'ok': False, 'code': getattr(e, 'code', 'io'), 'message': str(e)}
     clock = engine.clock.snapshot(live=True)
     return {'agent_version': status['agent_version'], 'device_id': status['device_id'], 'mode': status['mode'],
+            'hardware': status.get('hardware'),
             'dependencies': dependencies, 'checks': checks, 'clock': clock,
             'source_profile': sources.show(c), 'tools': status.get('tools'),
             'watchdog': status['watchdog'], 'boot_maintenance': status['boot_maintenance'],

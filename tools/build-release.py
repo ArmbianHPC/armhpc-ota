@@ -52,6 +52,8 @@ def build(args):
     output.mkdir(parents=True)
     if 'SOURCE_DATE_EPOCH' not in os.environ:
         os.environ['SOURCE_DATE_EPOCH'] = subprocess.check_output(['git', '-C', str(repo), 'show', '-s', '--format=%ct', 'HEAD'], text=True).strip()
+    subprocess.run([sys.executable, str(frame / 'tools/build/prepare-firmware-inputs.py'),
+                    '--project', str(frame)], check=True)
     packager = load(repo / 'tools/package-runtime.py', 'runtime_packager')
     runtime_report = packager.build(repo, output, args.helpers, framework=frame)
     portable = work / 'windows'

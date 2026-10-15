@@ -192,7 +192,7 @@ def schedule(engine, bundle=None, rollback=False, request_id=None):
     return status(c)
 
 
-def runtime_files(payload, architecture, role=None):
+def runtime_files(payload, architecture, role=None, board=None):
     result = {}
     for source in (payload/'src/armhpc_ota').rglob('*.py'):
         if '__pycache__' not in source.parts: result['usr/lib/armhpc-ota/armhpc_ota/' + source.relative_to(payload/'src/armhpc_ota').as_posix()] = source
@@ -211,7 +211,7 @@ def runtime_files(payload, architecture, role=None):
         source=payload/'compat/public-cli'/name
         if source.is_file(): result['usr/lib/armhpc/'+name]=source
     from .shared_resources import files as shared_files
-    result.update(shared_files(payload, role))
+    result.update(shared_files(payload, role, board))
     for name in ('LICENSE', 'THIRD-PARTY-NOTICES.md'):
         source = payload / name
         if source.is_file(): result['usr/share/doc/armhpc-ota/' + name] = source
@@ -226,6 +226,16 @@ def backup_and_install(engine, task, role, root, files):
     backup = c.state / 'maintenance/backups' / task['task_id'] / role
     inventory = backup/'files.json'
     has_clock = 'etc/systemd/system/armhpc-clock-floor.service' in files
+    has_fan = 'etc/systemd/system/armhpc-fan.service' in files
+    has_performance = 'etc/systemd/system/armhpc-performance.service' in files
+    if has_performance:
+        require('etc/systemd/system/armhpc-performance.timer' in files,
+                'performance_resources','Performance service requires its timer')
+        from .performance_resources import capture
+        capture(c,root,backup)
+    if has_fan:
+        from .fan_resources import capture
+        capture(c,root,backup)
     if has_clock:
         from .clock_resources import capture_active, prepare_rollback
         capture_active(c, root, backup)
@@ -265,6 +275,12 @@ def backup_and_install(engine, task, role, root, files):
     if has_clock:
         from .clock_resources import configure_links
         configure_links(root, backup, task['rollback'])
+    if has_fan:
+        from .fan_resources import configure
+        configure(root,backup,task['rollback'])
+    if has_performance:
+        from .performance_resources import configure
+        configure(root,backup,task['rollback'])
     if 'etc/systemd/system/armhpc-ota-boot-diagnostics.service' in files:
         from .diagnostic_resources import configure
         configure(root, backup, task['rollback'])
@@ -288,18 +304,26 @@ def worker(engine):
             require(sha256(directory/'runtime.tar.xz') == signed['artifact']['sha256'], 'tools_hash', 'Staged runtime changed')
             # Re-extract from the authenticated archive, so resume never trusts modified loose code.
             with tarfile.open(directory/'runtime.tar.xz', 'r:xz') as archive: safe_extract(archive, payload.parent)
-            files = runtime_files(payload, device['architecture'])
+            files = runtime_files(payload, device['architecture'], board=device['board'])
             require(all(p.is_file() for p in files.values()), 'tools_resources', 'Missing runtime/helper files')
             for role in (task['backed_up'] if task['rollback'] else task['roles']):
                 checkpoint = ('rollback-' if task['rollback'] else '') + role
                 if checkpoint in task['completed']: continue
                 with target_root(engine, storage, device, role) as root:
-                    role_files = runtime_files(payload, device['architecture'], role)
+                    role_files = runtime_files(payload, device['architecture'], role, device['board'])
                     require(all(p.is_file() for p in role_files.values()), 'tools_resources', 'Missing role runtime resources')
                     backup_and_install(engine, task, role, root, role_files)
                 task['completed'].append(checkpoint); task['updated'] = now(); atomic_json(c.state/'maintenance/task.json', task)
             if not c.simulate:
                 run('systemctl', 'daemon-reload')
+                if 'etc/systemd/system/armhpc-performance.service' in files:
+                    from .performance_resources import activate
+                    current_role=next(role for role in task['roles'] if storage['partitions'][role]['path']==device['root'])
+                    activate(c,c.state/'maintenance/backups'/task['task_id']/current_role,task['rollback'])
+                if 'etc/systemd/system/armhpc-fan.service' in files:
+                    from .fan_resources import activate
+                    current_role=next(role for role in task['roles'] if storage['partitions'][role]['path']==device['root'])
+                    activate(c,c.state/'maintenance/backups'/task['task_id']/current_role,task['rollback'])
                 if 'etc/systemd/system/armhpc-clock-floor.service' in files:
                     from .clock_resources import activate
                     running_role = next(role for role in task['roles'] if storage['partitions'][role]['path'] == device['root'])
@@ -351,7 +375,8 @@ def retain_installed_runtime(config, root):
     require(sha256(directory/'runtime.tar.xz')==m['artifact']['sha256'],'tools_hash','Maintained runtime changed')
     with tarfile.open(directory/'runtime.tar.xz','r:xz') as archive:safe_extract(archive,payload.parent)
     role = 'rescue_a' if (Path(root)/'etc/armhpc/rescue-environment').is_file() else 'system'
-    for relative,source in runtime_files(payload,discover(config)['architecture'],role).items():
+    device=discover(config)
+    for relative,source in runtime_files(payload,device['architecture'],role,device['board']).items():
         destination=Path(root)/relative
         require(not any(p.is_symlink() for p in [destination,*destination.parents] if p!=Path(root) and p.is_relative_to(Path(root))), 'tools_path', 'Retained runtime target or parent is a symbolic link')
         atomic_copy(source,destination,0o755 if relative.endswith('watchdog-guard') else 0o644)
@@ -363,6 +388,9 @@ def retain_installed_runtime(config, root):
     if (payload/'compat/clock-services').is_dir():
         from .clock_resources import configure_links
         configure_links(root)
+    if (Path(root)/'etc/systemd/system/armhpc-performance.timer').is_file():
+        from .performance_resources import enable
+        enable(root)
 
 if __name__ == "__main__":
     raise SystemExit(main())

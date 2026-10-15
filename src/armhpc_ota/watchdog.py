@@ -101,8 +101,8 @@ def prepare(engine, kind='expire', sata='present', test_id=None):
     with engine.store.lock():
         device = discover(c); storage = layout(c, device, initialized=True)
         engine._require_shared_mount(storage)
-        require(device['mode'] == 'rescue' and device['board'] == 'wxy-oect-original',
-                'test_mode', 'Run physical experiments in the OECT Rescue')
+        require(device['mode'] == 'rescue' and device['board'] in ('wxy-oect-original','wxy-oesp-v22'),
+                'test_mode', 'Run the diagnostic in a supported Rescue environment')
         if test_id:
             old = record(c, test_id)
             require(old['kind'] == kind and old['sata_condition'] == sata and
@@ -127,7 +127,7 @@ def prepare(engine, kind='expire', sata='present', test_id=None):
         require(device['root']==storage['partitions']['rescue_'+slot]['path'],'test_root','Enter the selected confirmed/diagnostic Rescue before a fault test')
         require(not control.get('trial'), 'trial_active', 'A boot trial is still active')
         if not c.simulate:
-            require(read('/sys/class/watchdog/watchdog0/identity') == 'Synopsys DesignWare Watchdog',
+            require(read('/sys/class/watchdog/watchdog0/identity') == c.board().get('watchdog_driver','Synopsys DesignWare Watchdog'),
                     'watchdog_driver', 'Unexpected watchdog driver')
             owner = None
             for p in ('RuntimeWatchdogUSec', 'KExecWatchdogUSec'):
@@ -137,6 +137,7 @@ def prepare(engine, kind='expire', sata='present', test_id=None):
             require(read('/proc/sys/kernel/panic')=='0','panic_timeout','Set kernel.panic=0 for a genuine watchdog panic recovery test')
         tid = str(uuid.uuid4())
         r = {'protocol': 1, 'test_id': tid, 'kind': kind, 'device_id': device['device_id'],
+             'board':device['board'],'management_interfaces':c.board().get('management_interfaces',['eth0']),
              'sata_condition': sata, 'operator_checked_sata_power': False,
              'before_boot_id': 'fixture' if c.simulate else boot_id(), 'kernel': device['kernel'],
              'slot': slot, 'boot': tested_boot, 'stage': 'preparing' if not c.simulate else 'prepared',
@@ -233,10 +234,9 @@ def report(engine, test_id=None, confirmed=False, manual=False, cancel=False):
                 require(e.get('test_id') == r['test_id'] and e.get('action') == r['kind'] and
                         e.get('stage') == 'triggered' and e.get('boot_id') == r['before_boot_id'],
                         'test_evidence', 'No durable guardian trigger evidence')
-                net = command('ip', '-j', 'address', 'show', 'dev', 'eth0')
-                addresses = json.loads(net['output'])[0].get('addr_info', []) if net['rc'] == 0 else []
-                require(read('/sys/class/net/eth0/carrier') == '1' and
-                        any(a['family'] == 'inet' for a in addresses) and
+                from .guardian_activation import network_ready
+                net=network_ready(c.board().get('management_interfaces',['eth0']),command,read)
+                require(net and
                         command('systemctl', 'is-active', 'ssh.service')['output'] == 'active',
                         'test_network', 'Link, IPv4 and SSH must be ready')
                 boot = read_json('/run/armhpc/ota-boot.json')
@@ -245,6 +245,7 @@ def report(engine, test_id=None, confirmed=False, manual=False, cancel=False):
                 require(boot.get('target') == 'rescue' and boot.get('slot') == r['slot'],
                         'test_slot', 'Did not return to the prepared confirmed Rescue')
                 r['trigger_evidence'] = e
+                r['recovery_network'] = net
             r.update(stage='manual-recovery' if manual else 'recovered-confirmed',
                      after_boot_id=after, operator_no_manual_power_reset=not manual,
                      internal_watchdog_passed=confirmed and r['kind'] == 'expire',

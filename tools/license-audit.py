@@ -28,6 +28,8 @@ def inventory(root):
                 origin='ARMHPC driver compatibility adaptation / Linux 6.12.111 e2acc2211022246c77740d5df08265cc27eedcc5'
             else:
                 origin='Armbian build 147b9a23f09fae4d5ef8e73cf07ee69652ff4976 / original patch authors / ARMHPC context backports'
+        elif q.parts[:3]==('adapters','boards','wxy-oesp-v22') and p.suffix in ('.dts','.c','.patch'):
+            origin='ophub linux-6.12.y a6ab4bc106b5f65d6a3ecf577bf08d96ab4dced1 / unifreq PR 16 / original authors retained; board SOURCES.md'
         elif dts:origin='unifreq linux-6.12.y 4c0b3046f608fad852b55de1b234d43b8e178034 / Linux 53ec6d21fe1ec0677f9db56a23dda8d145eda102'
         elif q.parts[0]=='LICENSES' or q.as_posix()=='LICENSE':origin='Original license text'
         else:origin='ARMHPC contributors'

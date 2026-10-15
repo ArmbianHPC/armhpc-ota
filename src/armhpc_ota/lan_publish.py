@@ -148,7 +148,17 @@ def inspect_runtime(runtime):
                 raise OTAError('tools_profile','OECT 适配配置不是有效 JSON。') from error
             require(isinstance(adapter,dict) and isinstance(adapter.get('anchor_abi'),str) and adapter['anchor_abi'],
                     'tools_profile','OECT 适配配置缺少引导 ABI。')
-            return {'version':values[0],'anchor_abi':adapter['anchor_abi']}
+            adapters=[adapter]
+            extra=prefix+'/src/armhpc_ota/profiles/wxy-oesp-v22.json'
+            if extra in by_name:
+                require(by_name[extra].isfile() and by_name[extra].size<=1024**2,'tools_profile','Invalid OESP profile member')
+                other=json.load(archive.extractfile(by_name[extra]))
+                require(other.get('id')=='wxy-oesp-v22' and other.get('layout')=='oesp-mbr-squashfs-ab-v1',
+                        'tools_profile','Unexpected OESP adapter')
+                adapters.append(other)
+            return {'version':values[0],'anchor_abi':adapter['anchor_abi'],
+                    'boards':sorted({a.get('id','wxy-oect-original') for a in adapters}),'layouts':sorted({a.get('layout','oect-squashfs-ab-v2') for a in adapters}),
+                    'anchor_abis':sorted({a['anchor_abi'] for a in adapters})}
     except tarfile.TarError as error:
         raise OTAError('tools_runtime_format','所选文件不是有效的 XZ 运行时归档，请选择 *-linux-runtime.tar.xz。') from error
 
@@ -162,8 +172,8 @@ def tools_bundle(runtime, output, key, key_id, version=None):
             '制作新的签名包需要发布目录之外的 Ed25519 私钥。使用现成交付目录时直接启动发布服务。')
     output=output_root(output,key);version=detected
     m={'protocol':1,'kind':'tools','version':version,'minimum_agent':'0.2.0',
-       'boards':['wxy-oect-original'],'architectures':['arm64','armhf'],
-       'layouts':['oect-squashfs-ab-v2'],'anchor_abis':[metadata['anchor_abi']],
+       'boards':metadata['boards'],'architectures':['arm64','armhf'],
+       'layouts':metadata['layouts'],'anchor_abis':metadata['anchor_abis'],
        'artifact':{'size':runtime.stat().st_size,'sha256':sha256(runtime)}}
     raw=sign(m,key,key_id)
     dest=output/'tools'/version/'maintenance.tar.xz'

@@ -90,7 +90,7 @@ def validate_manifest(manifest):
         require(isinstance(item.get('size'), int) and item['size'] > 0, 'artifact_size', 'Invalid download size')
         require(isinstance(item.get('url'), str), 'artifact_url', 'Artifact URL is missing')
         if role.endswith('rootfs'):
-            expected = 'squashfs' if role == 'rescue-rootfs' and manifest['layout'] == 'oect-squashfs-ab-v2' else 'ext4.zstd'
+            expected = 'squashfs' if role == 'rescue-rootfs' and manifest['layout'] in ('oect-squashfs-ab-v2','oesp-mbr-squashfs-ab-v1') else 'ext4.zstd'
             require(item.get('encoding') == expected, 'encoding', 'Root payload format differs from its declared layout')
             if expected == 'squashfs':
                 require(item.get('expanded_size') == item['size'] and item.get('expanded_sha256') == item['sha256'],

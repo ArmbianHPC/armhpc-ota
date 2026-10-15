@@ -20,7 +20,7 @@ public partial class MainWindow
     {
         var request=ArmHpcCommands.Parse(command);
         if(confirm && MessageBox.Show(this,"此操作可能重启或停止喂狗。确认现场可断电恢复；SSH/COM 结果未知时仅查询原诊断 ID。\n\n"+command,
-            "单节点受控实验",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)throw new OperationCanceledException();
+            "单节点复位诊断",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)throw new OperationCanceledException();
         device.LastCommand=command;device.CommandSummary="诊断提交中";
         try
         {
@@ -44,8 +44,8 @@ public partial class MainWindow
         try
         {
             var d=DiagnosticDevice();
-            string? kind=Dialogs.Input(this,"准备实验","expire / reboot / direct-restart / panic","expire");if(kind is null)return;
-            if(kind is not ("expire" or "reboot" or "direct-restart" or "panic"))throw new ArgumentException("未知实验。");
+            string? kind=Dialogs.Input(this,"准备诊断","expire / reboot / direct-restart / panic","expire");if(kind is null)return;
+            if(kind is not ("expire" or "reboot" or "direct-restart" or "panic"))throw new ArgumentException("未知诊断类型。");
             string? sata=Dialogs.Input(this,"SATA 条件","present 或 absent；执行前需卸载 SATA，absent 要拔开数据与电源","present");if(sata is null)return;
             if(sata is not ("present" or "absent"))throw new ArgumentException("未知 SATA 条件。");
             await DiagnosticCommand(d,"armhpc-rescue watchdog prepare --kind "+kind+" --sata "+sata+" --yes --json",true);
@@ -55,7 +55,7 @@ public partial class MainWindow
     {
         try
         {
-            var d=DiagnosticDevice();string? id=Dialogs.Input(this,"执行一次实验","准备操作返回的 test_id；已提交的实验不会再次触发");if(id is null)return;
+            var d=DiagnosticDevice();string? id=Dialogs.Input(this,"执行复位诊断","准备操作返回的 test_id；已提交的诊断不会再次触发");if(id is null)return;
             if(!Guid.TryParse(id,out _))throw new ArgumentException("诊断 ID 无效。");
             await DiagnosticCommand(d,"armhpc-rescue watchdog test --test-id "+id+" --checked-sata-power --yes --json",true);
         }catch(Exception error){MessageBox.Show(this,error.Message,"诊断结果待核对");}
@@ -76,6 +76,31 @@ public partial class MainWindow
         try{await DiagnosticCommand(DiagnosticDevice(),"armhpc ota boot status --json",false);}
         catch(Exception error){MessageBox.Show(this,error.Message);}
     }
+    private async void UsbRescueClick(object sender,RoutedEventArgs e)
+    {
+        if(batching)return;
+        try
+        {
+            var device=DiagnosticDevice();
+            if(device.Board!="wxy-oesp-v22")throw new InvalidOperationException("USB 下载口恢复入口需要 OESP。");
+            var exportPicker=new OpenFileDialog{Title="选择本机私有 BOOT 导出清单",Filter="BOOT 导出清单|BOOT-export.json"};
+            if(exportPicker.ShowDialog(this)!=true)return;
+            using var descriptor=JsonDocument.Parse(File.ReadAllText(exportPicker.FileName));
+            if(Protocol.Text(descriptor.RootElement,"device_id")!=device.DeviceId)
+                throw new InvalidOperationException("BOOT 导出不属于所选设备。");
+            var toolPicker=new OpenFileDialog{Title="选择随包 USB 恢复工具",Filter="OESP USB 恢复工具|oesp-usb-rescue.py"};
+            if(toolPicker.ShowDialog(this)!=true)return;
+            string folder=Path.GetDirectoryName(toolPicker.FileName)!;
+            Show(await UsbRescue.Run(folder,exportPicker.FileName,true,Log,closing.Token));
+            if(MessageBox.Show(this,"关闭 USB Burning Tool，连接一台处于 USB 下载模式的 OESP。\n\n此步骤在内存中启动已确认 Rescue。之后按原设备身份重连，再恢复 BOOT。Windows 需以管理员身份启动本程序。",
+                "USB 恢复",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
+            batching=true;
+            var result=await UsbRescue.Run(folder,exportPicker.FileName,false,Log,closing.Token);
+            Show(result);device.State="USB 恢复已提交，等待 Linux 重连";Save();
+        }
+        catch(Exception error){MessageBox.Show(this,error.Message,"USB 恢复待核对");}
+        finally{batching=false;}
+    }
     private async void BootCandidateClick(object sender,RoutedEventArgs e)
     {
         if(batching)return;
@@ -95,7 +120,8 @@ public partial class MainWindow
             {
                 if(Protocol.Text(existing,"bundle_sha256")!=hashOfBundle)throw new InvalidOperationException("现有 BOOT 任务绑定其他包，请先查询或回滚。");
                 id=Protocol.Text(existing,"task_id");
-                if(Protocol.Text(existing,"stage")=="awaiting-watchdog"){Show(current.Data);return;}
+                if(Protocol.Text(existing,"stage") is "awaiting-watchdog" or "preparing-system" or "updating-system")
+                {Show(current.Data);return;}
             }
             else if(File.Exists(bindingFile))
             {
@@ -129,5 +155,45 @@ public partial class MainWindow
             if(!Guid.TryParse(id,out _))throw new ArgumentException("BOOT ID 无效。");
             await DiagnosticCommand(d,"armhpc-rescue ota boot rollback --request-id "+id+" --yes --json",true);
         }catch(Exception error){MessageBox.Show(this,error.Message,"回滚未完成");}
+    }
+    private async void BootRestoreClick(object sender,RoutedEventArgs e)
+    {
+        if(batching)return;
+        try
+        {
+            var device=DiagnosticDevice();
+            var current=await ssh.Execute(Endpoint(device),CredentialsFor(device),device,"boot",["status"],cancellation:closing.Token);
+            string id=Protocol.Text(current.Data.GetProperty("task"),"task_id");
+            if(!Guid.TryParseExact(id,"D",out _))throw new InvalidOperationException("缺少原 BOOT 任务 ID。");
+            var preview=await ssh.Execute(Endpoint(device),CredentialsFor(device),device,"boot",["restore","--request-id",id],cancellation:closing.Token);
+            Show(preview.Data);
+            if(MessageBox.Show(this,"按已保存的设备身份和分区范围恢复 BOOT。\n\n恢复后仍停留在 Rescue，继续执行同任务的 BOOT 回滚。",
+                "恢复 BOOT",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
+            batching=true;
+            Show((await ssh.Execute(Endpoint(device),CredentialsFor(device),device,"boot",["restore","--request-id",id,"--execute"],true,cancellation:closing.Token)).Data);
+        }catch(Exception error){MessageBox.Show(this,error.Message,"BOOT 恢复待核对");}
+        finally{batching=false;}
+    }
+
+    private async void BootCommitClick(object sender,RoutedEventArgs e)
+    {
+        if(batching)return;
+        try
+        {
+            var device=DiagnosticDevice();
+            var current=await ssh.Execute(Endpoint(device),CredentialsFor(device),device,"boot",["status"],cancellation:closing.Token);
+            if(!current.Data.TryGetProperty("task",out var task) || task.ValueKind!=JsonValueKind.Object)
+                throw new InvalidOperationException("设备没有待确认的 BOOT 任务。");
+            string id=Protocol.Text(task,"task_id");
+            if(!Guid.TryParseExact(id,"D",out _))throw new InvalidOperationException("设备 BOOT 任务 ID 无效。");
+            if(Protocol.Text(task,"stage")=="committed"){Show(current.Data);return;}
+            if(MessageBox.Show(this,"确认当前 BOOT 任务。设备会核对启动和复位诊断记录；包中包含配套系统时，将继续部署并健康确认 SATA 系统。\n\n任务："+id,
+                "确认 BOOT 维护",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
+            var result=await ssh.Execute(Endpoint(device),CredentialsFor(device),device,"boot",
+                ["apply","--request-id",id,"--commit"],true,cancellation:closing.Token);
+            device.LastCommand="BOOT 确认 / 配套系统更新";
+            device.CommandSummary=Protocol.Text(result.Data.GetProperty("task"),"stage");
+            Show(result.Data);Save();
+        }catch(Exception error){MessageBox.Show(this,error.Message,"BOOT 任务按原 ID 继续查询");}
     }
 }

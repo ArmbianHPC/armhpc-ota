@@ -21,3 +21,5 @@ credentials.json
 device-state/
 release-output/
 .vs/
+ui-state-*/
+ui-result.*

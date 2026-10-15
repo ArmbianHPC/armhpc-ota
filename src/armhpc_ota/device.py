@@ -40,7 +40,7 @@ def flatten(items, parent=None):
     return result
 
 
-def discover(config):
+def discover(config, recovery=False):
     if config.simulate:
         return read_json(config.simulate / 'device.json')
     require(platform.system() == 'Linux', 'platform', 'Device operations require Linux; use --simulate-root for fixtures')
@@ -76,9 +76,23 @@ def discover(config):
                 if (p.parent / 'type').read_text().strip() == 'MMC']
         require(len(cids) == 1, 'identity_missing', 'Cannot uniquely identify the eMMC for OTA bootstrap')
         device_id = hashlib.sha256(('armhpc:' + ':'.join(sorted(cids))).encode()).hexdigest()
-    return {'device_id': device_id, 'board': config.profile, 'architecture': architecture,
+    recovery_boot=None;recovery_slot=None
+    if recovery and board.get('partition_table')=='dos':
+        from .squashfs import boot_context
+        context=boot_context()
+        if context.get('maintenance_recovery'):
+            require(context.get('shared_ready') and context.get('target')=='rescue',
+                    'recovery_context','Recovery requires a verified Rescue and mounted shared partition')
+            recovery_boot=context.get('boot_device');recovery_slot=context.get('slot')
+            require(recovery_boot and recovery_slot in ('a','b'),'recovery_context','Recovery partition identity is missing')
+    device={'device_id': device_id, 'board': config.profile, 'architecture': architecture,
             'distribution': 'bookworm', 'mode': mode, 'root': root, 'kernel': platform.release(),
-            'blocks': blocks, 'compatible': compatible}
+            'blocks': blocks, 'compatible': compatible,
+            'boot_recovery':recovery_boot is not None,
+            'installation_medium': Path('/run/armhpc-install-medium').exists()}
+    from .platform import storage_view
+    return storage_view(config,device,lambda disk: parse_json(run('sfdisk','--json',disk).encode())['partitiontable'],
+                        recovery_boot,recovery_slot)
 
 
 def unique_block(device, label, optional=False):
@@ -105,7 +119,7 @@ def layout(config, device, initialized=False):
     for role, start, size in [('boot', board['boot_start'], board['boot_sectors']),
                              ('rescue_a', board['rescue_a_start'], board['rescue_a_sectors'])]:
         item = found[role]
-        require(int(item['start']) == start and int(item['size']) == size * board['sector_size'] and item['fstype'] == ('ext4' if role == 'boot' else board.get('rescue_fstype', 'ext4')),
+        require(int(item['start']) == start and int(item['size']) == size * board['sector_size'] and item['fstype'] == (board.get('boot_fstype', 'ext4') if role == 'boot' else board.get('rescue_fstype', 'ext4')),
                 'partition_geometry', 'Existing BOOT/Rescue geometry differs from the adapter', role=role)
     if initialized:
         for role in ('rescue_b', 'shared'):
@@ -119,7 +133,7 @@ def layout(config, device, initialized=False):
         expected_shared = ((b_end + 2047) // 2048) * 2048
         require(found['rescue_b']['start'] == expected_b and found['shared']['start'] == expected_shared,
                 'slot_overlap', 'Rescue B/shared layout overlaps or differs from the append-only layout')
-        require(found['shared']['start'] + found['shared']['size'] // 512 <= emmc['size'] // 512 - 33,
+        require(found['shared']['start'] + found['shared']['size'] // 512 <= emmc['size'] // 512 - board.get('disk_tail_reserved_sectors', 33),
                 'shared_geometry', 'Shared filesystem exceeds the usable GPT disk range')
         require(len([node for node in device['blocks'] if node.get('parent') == emmc['path']]) == 4,
                 'foreign_partition', 'Unexpected eMMC partitions in the OTA layout')
@@ -128,6 +142,8 @@ def layout(config, device, initialized=False):
         require(data and system['parent'] == data['parent'] and system['parent'] != emmc['path'],
                 'sata_layout', 'System and DATA must be separate partitions on SATA')
         disk = next(item for item in device['blocks'] if item['path'] == system['parent'])
+        if board['id']=='wxy-oesp-v22':
+            require(disk.get('serial') or disk.get('wwn'),'disk_identity','OESP SATA requires a serial number or WWN')
         require(disk.get('tran') == 'sata' and system['fstype'] == data['fstype'] == 'ext4' and
                 int(system['size']) == board['system_bytes'], 'sata_layout', 'Expected a 64 GiB ext4 SATA root and ext4 DATA')
         require(system['type'] == data['type'] == 'part' and int(data['start']) >= int(system['start']) + int(system['size']) // 512,
@@ -136,6 +152,7 @@ def layout(config, device, initialized=False):
 
 
 def ensure_unmounted(config, device, target):
+    require(not device.get('installation_medium'), 'installation_medium', 'USB commissioning media cannot deploy OTA targets')
     require(target['path'] != device['root'], 'running_root', 'Refusing to write the running root filesystem')
     require(not any(target.get('mountpoints') or []), 'mounted', 'Target partition is mounted', target=target['path'])
     labels = config.board()['labels']
@@ -158,6 +175,8 @@ def ensure_unmounted(config, device, target):
 
 
 def check_gate(config, device, control=None):
+    require(not device.get('boot_recovery'),'boot_recovery','Finish explicit BOOT recovery before automatic OTA')
+    require(not device.get('installation_medium'), 'installation_medium', 'OTA writing is disabled on USB commissioning media')
     if config.hardware_policy == 'development':
         board = config.board()
         require(board.get('development_ota_supported') is True and device['board'] == board['id'] and

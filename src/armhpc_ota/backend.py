@@ -572,7 +572,9 @@ class Backend:
         managed_mounts = {'/', '/boot', '/data', '/var/lib/armhpc/ota'}
         lines = [line for line in lines if len(line.split()) < 2 or line.lstrip().startswith('#') or line.split()[1] not in managed_mounts]
         boot = storage['partitions']['boot']
-        lines.append('UUID=' + boot['uuid'] + ' /boot ext4 ro,noatime 0 2')
+        kind=storage['board'].get('boot_fstype','ext4')
+        options='ro,noatime,umask=022' if kind=='vfat' else 'ro,noatime'
+        lines.append('UUID=' + boot['uuid'] + ' /boot '+kind+' '+options+' 0 2')
         if target == 'system':
             normal, data = storage['partitions']['system'], storage['partitions']['data']
             lines.extend(['UUID=' + normal['uuid'] + ' / ext4 defaults,noatime 0 1',
@@ -604,7 +606,7 @@ class Backend:
     def save_shared_identity(self, root, target):
         root = Path(root)
         directory = self.config.state / 'identities' / target
-        selected = ['etc/machine-id', 'var/lib/armhpc/network-identity.json']
+        selected = ['etc/machine-id', 'var/lib/armhpc/network-identity.json','var/lib/armhpc/network-ports-identity.json']
         selected.extend(path.relative_to(root).as_posix() for path in (root / 'etc/ssh').glob('ssh_host_*'))
         for relative in selected:
             source = root / relative

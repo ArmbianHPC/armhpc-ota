@@ -62,9 +62,10 @@ def parser():
     receive.add_argument('--manifest',required=True); receive.add_argument('--target',choices=('all','system','rescue'),default='all')
     receive.add_argument('--request-id',required=True);receive.add_argument('--phase',choices=('prepare','commit'),default='prepare')
     boot = sub.add_parser('boot'); common(boot, True)
-    boot.add_argument('action', choices=('plan', 'apply', 'status', 'rollback'))
+    boot.add_argument('action', choices=('plan', 'apply', 'status', 'rollback', 'restore'))
     boot.add_argument('--bundle'); boot.add_argument('--request-id')
     boot.add_argument('--exported-backup-sha256'); boot.add_argument('--commit', action='store_true')
+    boot.add_argument('--execute',action='store_true',help='Restore the task-bound BOOT recovery image after preview')
     # Private service operations are deliberately not extra public shell commands.
     internal = sub.add_parser('_service', help=argparse.SUPPRESS)
     common(internal, True)
@@ -97,6 +98,11 @@ def main(argv=None):
             if args.action == 'status': result = bm.status(config)
             elif args.action == 'plan':
                 require(args.bundle, 'boot_bundle', 'Supply --bundle'); result = bm.plan(engine,args.bundle)
+            elif args.action == 'restore':
+                from .boot_recovery import restore
+                result=restore(engine,args.request_id)
+                if args.execute:
+                    approval(args,result);result=restore(engine,args.request_id,True)
             else:
                 approval(args, {'BOOT_maintenance':args.action,'private_recovery_export_required':True})
                 result = bm.rollback(engine,args.request_id) if args.action == 'rollback' else bm.apply(engine,args.bundle,args.request_id,args.exported_backup_sha256,args.commit)

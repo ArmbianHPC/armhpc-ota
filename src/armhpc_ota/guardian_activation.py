@@ -97,21 +97,32 @@ def holders():
     return found
 
 
+def network_ready(interfaces=('eth0',), runner=None, reader=None):
+    runner, reader = runner or run, reader or read
+    for interface in interfaces:
+        net = runner('ip','-j','address','show','dev',interface)
+        try:
+            ipv4=any(a.get('family')=='inet' for a in json.loads(net['output'])[0].get('addr_info',[]))
+        except (ValueError,IndexError,KeyError,TypeError):
+            ipv4=False
+        if net['rc']==0 and ipv4 and reader('/sys/class/net/'+interface+'/carrier')=='1':
+            return {'interface':interface,'link':True,'ipv4_ready':True}
+    return None
+
+
 def ready_record(prepared):
     require(CONTEXT.is_file(), 'test_boot_context', 'Missing current Rescue boot context')
     context = read_json(CONTEXT)
     require(context.get('target') == 'rescue' and context.get('slot') == prepared['slot']
             and context.get('release') == prepared['boot']['release'] and context.get('shared_ready'),
             'test_boot_context', 'Current Rescue context differs from the protected test target')
-    net = run('ip', '-j', 'address', 'show', 'dev', 'eth0')
-    try: ipv4 = any(a.get('family') == 'inet' for a in json.loads(net['output'])[0].get('addr_info', []))
-    except (ValueError, IndexError, KeyError, TypeError): ipv4 = False
-    require(net['rc'] == 0 and ipv4 and read('/sys/class/net/eth0/carrier') == '1'
+    net = network_ready(prepared.get('management_interfaces',('eth0',)))
+    require(net
             and run('systemctl', 'is-active', 'ssh.service')['output'] == 'active',
             'test_network', 'Confirmed Rescue needs link, IPv4 and SSH before arming a test guardian')
     return {'boot_id': prepared['before_boot_id'], 'test_id': prepared['test_id'],
             'slot': prepared['slot'], 'release': prepared['boot']['release'],
-            'shared_ready': True, 'link': True, 'ipv4_ready': True, 'ssh': True}
+            'shared_ready': True, **net, 'ssh': True}
 
 
 def ensure(prepared):

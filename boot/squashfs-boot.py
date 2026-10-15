@@ -18,9 +18,22 @@ from armhpc_ota.metadata import verify, validate_manifest
 from armhpc_ota.squashfs import read_trailer, generation, OVERLAY_OPTIONS, BOOT_RECORD
 
 BASE = Path('/run/armhpc-ota')
+BOARD = {}
+BOOT_DEVICE = None
 
 
 def partition(label, squash=False, optional=False):
+    if squash and BOARD.get('partition_table') == 'dos':
+        from armhpc_ota.device import flatten
+        from armhpc_ota.platform import slot_nodes
+        parent = run('lsblk', '-n', '-d', '-p', '-o', 'PKNAME', BOOT_DEVICE)
+        blocks = flatten(json.loads(run('lsblk','--json','--bytes','--paths','--output',
+            'NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,PARTUUID,START,LOG-SEC',parent))['blockdevices'])
+        table = json.loads(run('sfdisk','--json',parent))['partitiontable']
+        nodes = slot_nodes(BOARD,blocks,table,BOOT_DEVICE if 'armhpc.recovery-slot=' in Path('/proc/cmdline').read_text() else None)
+        roles = [r for r in ('rescue_a','rescue_b') if BOARD['labels'][r] == label]
+        require(len(roles)==1,'slot_label','Unknown Rescue role')
+        return nodes[roles[0]]['path']
     query = ('PARTLABEL=' if squash else 'LABEL=') + label
     for _ in range(15 if not optional else 1):
         items = run('blkid', '-c', '/dev/null', '-t', query, '-o', 'device', accepted=(0, 2)).splitlines()
@@ -34,6 +47,24 @@ def partition(label, squash=False, optional=False):
 def mount(device, path, kind, writable=False):
     path.mkdir(parents=True, exist_ok=True)
     run('mount', '-t', kind, '-o', 'rw,noatime' if writable else ('ro,noload' if kind == 'ext4' else 'ro'), device, path)
+
+
+def recovery_boot_partition(board):
+    from armhpc_ota.device import flatten
+    from armhpc_ota.platform import slot_nodes
+    shared=partition(board['labels']['shared'])
+    parent=run('lsblk','-n','-d','-p','-o','PKNAME',shared)
+    require((Path('/sys/class/block')/Path(parent).name/'device/cid').is_file(),
+            'recovery_disk','Recovery shared partition is not on eMMC')
+    blocks=flatten(json.loads(run('lsblk','--json','--bytes','--paths','--output',
+        'NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,PARTUUID,START,LOG-SEC',parent))['blockdevices'])
+    table=json.loads(run('sfdisk','--json',parent))['partitiontable']
+    require(len(table.get('partitions',[]))==4,'mbr_layout','Incomplete recovery partition table')
+    boot=table['partitions'][0]['node']
+    nodes=slot_nodes(board,blocks,table,boot)
+    require(nodes['shared']['path']==shared and nodes['shared']['fstype']=='ext4',
+            'recovery_disk','Recovery shared partition differs from the MBR layout')
+    return boot
 
 
 def capacity(device): return int(run('blockdev', '--getsize64', device))
@@ -56,7 +87,7 @@ def grow_shared(device, board):
     require(parent.startswith('/dev/') and Path(parent).is_block_device(), 'shared_disk', 'Shared must belong to an eMMC disk')
     table = json.loads(run('sfdisk', '--json', parent))['partitiontable']
     p = table['partitions']
-    require(table['label'] == 'gpt' and len(p) == 4 and table.get('sectorsize', 512) == 512,
+    require(table['label'] == board.get('partition_table','gpt') and len(p) == 4 and table.get('sectorsize', 512) == 512,
             'shared_geometry', 'Unexpected initial GPT layout')
     expected = [(board['boot_start'], board['boot_sectors']), (board['rescue_a_start'], board['rescue_a_sectors']),
                 (board['rescue_b_start'], board['rescue_a_sectors'])]
@@ -65,6 +96,12 @@ def grow_shared(device, board):
             'shared_geometry', 'Shared growth would affect protected geometry')
     sectors = capacity(parent) // 512
     require(sectors * 512 >= board['minimum_emmc_bytes'], 'emmc_geometry', 'eMMC is too small')
+    if board.get('partition_table') == 'dos':
+        from armhpc_ota.platform import grow_mbr_shared
+        if grow_mbr_shared(parent,device,board,table,sectors):
+            run('partx','--update','--nr','4',parent);run('udevadm','settle','--timeout=15')
+        run('e2fsck','-f','-p',device,accepted=(0,1));run('resize2fs',device)
+        return
     last = sectors - 34
     if p[3]['start'] + p[3]['size'] - 1 < last:
         guid = p[3]['uuid']
@@ -78,6 +115,7 @@ def grow_shared(device, board):
 
 
 def kexec_target(selected, files, device, kind):
+    require(not BOARD.get('fixed_boot_only'),'kernel_ota_unverified','This board has not accepted kernel handoff')
     args = ['root=PARTUUID=' + run('blkid', '-s', 'PARTUUID', '-o', 'value', device), 'rootfstype=' + kind,
             'boot=armhpc', 'armhpc.direct=1', 'armhpc.target=' + selected['target'], 'net.ifnames=0',
             'console=ttyS2,1500000', 'console=tty1', 'systemd.unified_cgroup_hierarchy=1',
@@ -102,9 +140,22 @@ def stage(name,shared=None):
 
 
 def main(root):
+    global BOARD, BOOT_DEVICE
     config = Config.load(); config.state = BASE / 'shared'
-    board = config.board(); labels = board['labels']
-    mount(partition(labels['boot']), BASE / 'boot', 'ext4')
+    board = config.board(); labels = board['labels']; BOARD = board
+    cmd = dict(x.split('=',1) for x in Path('/proc/cmdline').read_text().split() if '=' in x)
+    forced_recovery=cmd.get('armhpc.recovery-slot')
+    boot_ready=False;boot_error=None
+    if forced_recovery:
+        require(forced_recovery in ('a','b'),'recovery_slot','Invalid recovery slot')
+    BOOT_DEVICE = recovery_boot_partition(board) if forced_recovery and board.get('partition_table')=='dos' else partition(labels['boot'])
+    try:
+        mount(BOOT_DEVICE, BASE / 'boot', board.get('boot_fstype','ext4'));boot_ready=True
+    except Exception as error:
+        if not forced_recovery:raise
+        boot_error=str(error)
+    install_medium = 'armhpc.install-medium=usb' in Path('/proc/cmdline').read_text().split()
+    if install_medium: Path('/run/armhpc-install-medium').touch()
     shared_ok = False
     selected = None
     stage('kernel-initramfs-entered')
@@ -113,7 +164,7 @@ def main(root):
         shared_device = partition(labels['shared'])
         bootcmd=Path('/proc/cmdline').read_text().split()
         restricted=any(x.startswith(('armhpc.recovery-slot=','armhpc.boot-maintenance=')) for x in bootcmd)
-        if not restricted and not (BASE / 'boot/armhpc-grow-disabled').exists(): grow_shared(shared_device, board)
+        if not install_medium and not restricted and not (BASE / 'boot/armhpc-grow-disabled').exists(): grow_shared(shared_device, board)
         mount(shared_device, config.state, 'ext4', True)
         device_id = identity(config.state)
         control = read_json(config.state / 'control.json')
@@ -132,7 +183,7 @@ def main(root):
         elif maintenance:
             from armhpc_ota.boot_maintenance import record
             task=record(config)
-            require(task and task['task_id']==maintenance and task['stage'] in ('entry-switching','awaiting-watchdog'),
+            require(task and task['task_id']==maintenance and task['stage'] in ('entry-switching','awaiting-watchdog','preparing-system'),
                     'boot_maintenance','Candidate is not admitted')
             bundle=verify((config.state/'boot-maintenance/releases'/task['release']/'manifest.json').read_bytes(),config.trust)
             require(bundle['release']==task['release'] and bundle['board']==board['id'] and
@@ -148,7 +199,8 @@ def main(root):
             selected = {'target': trial['target'], 'slot': trial['candidate'].get('slot'), 'task': trial['task'],
                         'boot': trial['candidate']['boot'], 'trial': True}
         else:
-            selected = select(config)
+            selected = {'target':'rescue','slot':'a','task':None,'fallback':True} if install_medium else select(config)
+            if install_medium: selected['boot'] = control['confirmed']['rescue']['boot']
         if not cmd.get('armhpc.recovery-slot'): files = verify_boot(config, selected)
         shared_ok = True
         stage('shared-and-selection-verified',config.state)
@@ -218,7 +270,15 @@ def main(root):
                 run('mount', '-t', 'overlay', '-o', 'lowerdir=' + str(lower) + ',upperdir=' + str(g / 'upper') + ',workdir=' + str(g / 'work') + ',' + OVERLAY_OPTIONS, 'overlay', root)
             else:
                 root.mkdir(parents=True, exist_ok=True); run('mount', '-o', 'move', lower, root)
-            (root / 'boot').mkdir(exist_ok=True); run('mount', '-o', 'bind', BASE / 'boot', root / 'boot')
+            (root / 'boot').mkdir(exist_ok=True)
+            if boot_ready: run('mount', '-o', 'bind', BASE / 'boot', root / 'boot')
+            elif forced_recovery:
+                fstab=root/'etc/fstab'
+                require(fstab.is_file() and not fstab.is_symlink(),'recovery_fstab','Rescue fstab is missing or linked')
+                masked=BASE/'recovery.fstab'
+                masked.write_text(''.join(line for line in fstab.read_text().splitlines(keepends=True)
+                    if len(line.split())<2 or line.lstrip().startswith('#') or line.split()[1]!='/boot'))
+                run('mount','-o','bind',masked,fstab)
             if shared_ok:
                 (root / 'var/lib/armhpc/ota').mkdir(parents=True, exist_ok=True)
                 run('mount', '-o', 'bind', config.state, root / 'var/lib/armhpc/ota')
@@ -230,7 +290,9 @@ def main(root):
                       'partuuid': run('blkid', '-s', 'PARTUUID', '-o', 'value', device),
                       'release': marker['release'], 'lower_mount': str(lower), 'shared_ready': shared_ok,
                       'fallback': not shared_ok or bool(choice.get('fallback')), 'maintenance_recovery':bool(cmd.get('armhpc.recovery-slot')), 'boot_maintenance':cmd.get('armhpc.boot-maintenance'),
-                      'watchdog': bool(choice.get('trial')) or cmd.get('armhpc.watchdog') == '1'}
+                      'installation_medium':install_medium,
+                      'boot_device':BOOT_DEVICE,'boot_ready':boot_ready,'boot_error':boot_error,
+                      'watchdog': (bool(choice.get('trial')) and board.get('watchdog_trial_enabled',True)) or cmd.get('armhpc.watchdog') == '1'}
             atomic_json(BOOT_RECORD, record)
             if record['watchdog']: Path('/run/armhpc-ota-watchdog-required').touch()
             if errors: (BOOT_RECORD.parent / 'boot-errors.log').write_text('\n'.join(errors) + '\n')

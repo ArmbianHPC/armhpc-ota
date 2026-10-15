@@ -13,6 +13,7 @@ from .errors import require
 from .io import atomic_json, atomic_bytes, atomic_copy, read_json, sha256, identifier, fsync_dir
 from .metadata import verify, validate_manifest, valid_sha, parse_json
 from .store import TERMINAL
+from . import boot_platform
 
 DONE = ('rolled-back', 'committed')
 
@@ -24,12 +25,14 @@ def record(config):
 
 def status(config):
     return {'task': record(config), 'hardware_verified': False, 'requires_rescue': True,
+            'supported': boot_platform.supported(config.board()),
             'scope': 'BOOT filesystem and inactive Rescue; loaders and protected prefix excluded'}
 
 
-def require_idle(config, diagnostic=False):
+def require_idle(config, diagnostic=False, job_id=None):
     r = record(config)
-    require(not r or r['stage'] in DONE or (diagnostic and r['stage'] == 'awaiting-watchdog'),
+    paired=r and r['stage']=='updating-system' and job_id and job_id==r.get('system_job_id')
+    require(not r or r['stage'] in DONE or paired or (diagnostic and r['stage'] == 'awaiting-watchdog'),
             'boot_maintenance_active', 'Finish or roll back BOOT maintenance before another write task')
 
 
@@ -74,15 +77,20 @@ def validate_bundle(engine, bundle):
         raw=t.extractfile(names['manifest.json']).read(); m=verify(raw,c.trust)
         require(m.get('kind')=='boot-maintenance' and m.get('protocol')==1,'boot_manifest','Wrong signed package type')
         require(m['board']==d['board'] and m['architecture']==d['architecture'] and
-                m['layout']==b['layout']=='oect-squashfs-ab-v2' and m['anchor_abi']==b['anchor_abi'],
+                m['layout']==b['layout'] and boot_platform.supported(b) and m['anchor_abi']==b['anchor_abi'],
                 'boot_compatibility','Wrong board/architecture/layout/ABI')
-        require(m.get('minimum_agent')=='0.3.4','boot_agent','Unexpected BOOT package revision')
+        from . import __version__
+        minimum=m.get('minimum_agent')
+        require(minimum in ('0.3.4','1.1.1','1.1.2','1.1.3','1.1.4') and tuple(map(int,__version__.split('.'))) >= tuple(map(int,minimum.split('.'))),
+                'boot_agent','Update the OTA agent before BOOT maintenance')
+        require(b['id']!='wxy-oesp-v22' or minimum in ('1.1.1','1.1.2','1.1.3','1.1.4'),'boot_agent','OESP BOOT maintenance requires agent 1.1.1 or later')
         identifier(m['release'])
         require(isinstance(m['sequence'],int) and m['sequence']>engine.store.control().get('highest_boot_sequence',0),
                 'boot_sequence','BOOT sequence must increase')
         require(parse_json(raw)['key_id'] in engine.store.control().get('anchor_key_ids',[]),'boot_key','Signer is not pinned')
         entries=m['files']
-        require(set(entries)=={'kernel','dtb','initramfs','recovery-initramfs','rescue-rootfs','rescue.manifest.json'} and
+        required_files={'kernel','dtb','initramfs','recovery-initramfs','rescue-rootfs','rescue.manifest.json'}
+        require(set(entries) in (required_files,required_files|{'system-rootfs'}) and
                 set(names)=={'manifest.json',*entries},'boot_files','Incomplete/extra paired BOOT payload')
         require(sum(n.size for n in members)<=2*1024**3 and
                 shutil.disk_usage(base).free>=sum(n.size for n in members)+64*1024**2,'boot_space','No staging capacity')
@@ -103,11 +111,22 @@ def validate_bundle(engine, bundle):
         file='rescue-rootfs' if name=='rootfs' else name
         require(a['sha256']==entries[file]['sha256'] and a['size']==entries[file]['size'],'boot_pair','Rescue/BOOT pairing differs')
         atomic_copy(base/file,c.cache/a['sha256'])
+    if 'system-rootfs' in entries:
+        require(m['minimum_agent'] in ('1.1.1','1.1.2','1.1.3','1.1.4'),'boot_agent','Paired system deployment requires agent 1.1.1 or later')
+        require(rescue['kernels'].get('system')==m['kernel_release'],'boot_system_pair','System kernel differs')
+        for name in ('kernel','dtb','initramfs','rootfs'):
+            a=next(a for a in rescue['artifacts'] if a['role']=='system-'+name)
+            file='system-rootfs' if name=='rootfs' else name
+            require(a['sha256']==entries[file]['sha256'] and a['size']==entries[file]['size'],
+                    'boot_system_pair','System/BOOT pairing differs')
+            atomic_copy(base/file,c.cache/a['sha256'])
     atomic_bytes(c.state/'manifests'/(rescue['release']+'.json'),(base/'rescue.manifest.json').read_bytes())
     for name,kh,dh in [('initramfs',entries['kernel']['sha256'],entries['dtb']['sha256']),
                        ('recovery-initramfs',m['requires']['kernel_sha256'],m['requires']['dtb_sha256'])]:
         with (base/name).open('rb') as f:require(f.read(4)!=bytes.fromhex('27051956'),'raw_initramfs','Raw initramfs required')
         validate_initramfs(c,base/name,kh,dh)
+    if not c.simulate:
+        boot_platform.validate_load_window(b,base/'kernel',base/'dtb',base/'initramfs')
     stored=c.state/'boot-maintenance/releases'/m['release']/'manifest.json'
     require(not stored.exists() or stored.read_bytes()==raw,'release_reuse','Signed BOOT release IDs are immutable')
     from .metadata import anchor_digest
@@ -123,7 +142,9 @@ def boot_root(engine, storage):
         p=engine.config.simulate/'roots/boot';p.mkdir(exist_ok=True);yield p;return
     p=Path('/boot')
     source=str(Path(run('findmnt','-n','-o','SOURCE','--mountpoint',p).split('[')[0]).resolve())
-    require(source==storage['partitions']['boot']['path'],'boot_mount','BOOT differs from GPT')
+    require(source==storage['partitions']['boot']['path'],'boot_mount','BOOT differs from the verified partition')
+    require(run('findmnt','-n','-o','FSTYPE','--mountpoint',p)==engine.config.board().get('boot_fstype','ext4'),
+            'boot_mount','BOOT filesystem differs from the board adapter')
     readonly='ro' in run('findmnt','-n','-o','OPTIONS','--mountpoint',p).split(',')
     if readonly:run('mount','-o','remount,rw',p)
     try:yield p
@@ -133,36 +154,30 @@ def boot_root(engine, storage):
 
 
 def entry_files(directory, append):
-    require(directory.startswith('/') and '..' not in directory and
-            all(c.isalnum() or c in '/-._' for c in directory),'boot_path','Unsafe boot directory')
-    ext=('DEFAULT ARMHPC\nTIMEOUT 10\nLABEL ARMHPC\n  LINUX '+directory+'/kernel\n  INITRD '+directory+
-         '/initramfs\n  FDT '+directory+'/dtb\n  APPEND '+append+'\n')
-    script=('# SPDX-License-Identifier: GPL-3.0-only\n'
-            'if test -z "${devtype}"; then setenv devtype mmc; fi\n'
-            'if test -z "${devnum}"; then setenv devnum 0; fi\n'
-            'if test -z "${distro_bootpart}"; then setenv distro_bootpart 1; fi\n'
-            'setenv kernel_addr_r 0x02000000\nsetenv fdt_addr_r 0x12000000\nsetenv ramdisk_addr_r 0x12180000\n'
-            'setenv bootargs "'+append+'"\n'
-            'if load ${devtype} ${devnum}:${distro_bootpart} ${kernel_addr_r} '+directory+'/kernel; then\n'
-            ' if load ${devtype} ${devnum}:${distro_bootpart} ${fdt_addr_r} '+directory+'/dtb; then\n'
-            '  if load ${devtype} ${devnum}:${distro_bootpart} ${ramdisk_addr_r} '+directory+'/initramfs; then\n'
-            '   setenv armhpc_initrd_size ${filesize}\n'
-            '   booti ${kernel_addr_r} ${ramdisk_addr_r}:${armhpc_initrd_size} ${fdt_addr_r}\n  fi\n fi\nfi\n')
-    return ext.encode(),script.encode()
+    return boot_platform.entry_files(directory,append)
 
 
 def install_entries(config,root,directory,arguments):
-    ext,script=entry_files(directory,arguments)
-    cmd=root/'armhpc-maintenance.cmd';atomic_bytes(cmd,script,0o644);scr=root/'.armhpc-maintenance.scr'
-    if config.simulate:atomic_bytes(scr,b'SIMULATED-SCRIPT\n'+script,0o644)
-    else:run('mkimage','-A','arm','-O','linux','-T','script','-C','none','-n','ARMHPC maintenance','-d',cmd,scr)
-    atomic_copy(scr,root/'boot.scr',0o644);atomic_bytes(root/'extlinux/extlinux.conf',ext,0o644);scr.unlink(missing_ok=True)
+    ext,script=boot_platform.entry_files(directory,arguments,config.board())
+    if config.board()['id']=='wxy-oesp-v22':
+        ramdisk=root/directory.lstrip('/')/'initramfs'
+        require(ramdisk.is_file(),'boot_initramfs','Missing raw candidate/recovery initramfs')
+        boot_platform.write(config,ramdisk.with_name('initramfs.uboot'),boot_platform.ramdisk(ramdisk.read_bytes()))
+    cmd=root/'armhpc-maintenance.cmd';boot_platform.write(config,cmd,script)
+    image=b'SIMULATED-SCRIPT\n'+script if config.simulate else boot_platform.script_image(script)
+    boot_platform.write(config,root/'extlinux/extlinux.conf',ext)
+    boot_platform.write(config,root/'boot.cmd',script)
+    if config.board()['id']=='wxy-oesp-v22':
+        usb=b'setenv devtype usb\nsetenv devnum 0\n'+script
+        boot_platform.write(config,root/'aml_autoscript.cmd',usb)
+        image_usb=b'SIMULATED-SCRIPT\n'+usb if config.simulate else boot_platform.script_image(usb)
+        boot_platform.write(config,root/'aml_autoscript',image_usb)
+    boot_platform.write(config,root/'boot.scr',image)
 
 
-def args(slot,task=None,recovery=False):
-    v='rootfstype=squashfs ro rootwait boot=armhpc net.ifnames=0 console=ttyS2,1500000 console=tty1 systemd.unified_cgroup_hierarchy=1'
-    if recovery:return v+' armhpc.recovery-slot='+slot
-    return v+' armhpc.boot-maintenance='+task+' armhpc.watchdog=1 watchdog.open_timeout=180 watchdog.stop_on_reboot=0 dw_wdt.nowayout=1'
+def args(slot,task=None,recovery=False,board=None):
+    board=board or {'id':'wxy-oect-original'}
+    return boot_platform.arguments(board,slot,task,recovery)
 
 
 def save(c,task):atomic_json(c.state/'boot-maintenance/task.json',task)
@@ -172,18 +187,21 @@ def backup(engine,storage,task,base):
     c=engine.config;private=c.cache/'boot-backups'/task['task_id'];private.mkdir(parents=True,mode=0o700,exist_ok=True)
     image=private/'BOOT-original.img'
     with boot_root(engine,storage) as root:
-        for rel in ('boot.scr','boot.cmd','extlinux/extlinux.conf','armbianEnv.txt'):
+        for rel in boot_platform.entry_names(c.board()):
             p=root/rel;require(p.is_file() and not p.is_symlink(),'boot_entry','Missing/linked boot entry',file=rel)
             atomic_copy(p,private/'entries'/rel)
         ctl=engine.store.control();atomic_json(private/'selection.json',{k:ctl.get(k) for k in ('next','trial','system_blocked','anchor_sha256')})
         if not image.exists():
             if c.simulate:atomic_bytes(image,b'SIMULATED-BOOT-NOT-FLASHABLE')
             else:
-                run('sync','-f',root);run('fsfreeze','-f',root)
+                run('sync','-f',root)
+                frozen=c.board().get('boot_fstype','ext4')=='ext4'
+                run('fsfreeze','-f',root) if frozen else run('mount','-o','remount,ro',root)
                 try:
                     with Path(storage['partitions']['boot']['path']).open('rb') as src:stream_copy(src,image,storage['partitions']['boot']['size'])
-                finally:run('fsfreeze','-u',root)
-                run('e2fsck','-f','-n',image)
+                finally:
+                    run('fsfreeze','-u',root) if frozen else run('mount','-o','remount,rw',root)
+                run('e2fsck','-f','-n',image) if frozen else run('fsck.fat','-n',image)
     for name in ('kernel','dtb'):
         require(sha256(c.state/task['original_boot'][name]['path'])==task['original_boot'][name]['sha256'],
                 'backup_pair','Original confirmed boot files changed')
@@ -197,18 +215,20 @@ def backup(engine,storage,task,base):
         else:loop=run('losetup','--find','--show',rescue_image)
         try:
             with tempfile.TemporaryDirectory(prefix='recovery-boot-',dir=c.cache) as temp:
-                if not c.simulate:run('mount','-t','ext4',loop,temp)
+                if not c.simulate:run('mount','-t',c.board().get('boot_fstype','ext4'),loop,temp)
                 try:
                     root=recovery if c.simulate else Path(temp);folder=root/'armhpc-recovery';folder.mkdir(exist_ok=True)
-                    for name in ('kernel','dtb'):atomic_copy(c.state/task['original_boot'][name]['path'],folder/name,0o644)
-                    atomic_copy(base/'recovery-initramfs',folder/'initramfs',0o644)
-                    install_entries(c,root,'/armhpc-recovery',args(task['original_slot'],recovery=True))
+                    for name in ('kernel','dtb'):boot_platform.copy(c,c.state/task['original_boot'][name]['path'],folder/name)
+                    boot_platform.copy(c,base/'recovery-initramfs',folder/'initramfs')
+                    if not c.simulate:boot_platform.validate_load_window(c.board(),folder/'kernel',folder/'dtb',folder/'initramfs')
+                    install_entries(c,root,'/armhpc-recovery',args(task['original_slot'],recovery=True,board=c.board()))
                     if not c.simulate:run('sync','-f',root)
                 finally:
                     if not c.simulate:run('umount',temp)
         finally:
             if not c.simulate:run('losetup','--detach',loop)
-        if not c.simulate:run('e2fsck','-f','-n',rescue_image)
+        if not c.simulate:
+            run('fsck.fat','-n',rescue_image) if c.board().get('boot_fstype')=='vfat' else run('e2fsck','-f','-n',rescue_image)
         atomic_json(completed,{'sha256':sha256(rescue_image)})
     compressed=private/'BOOT-rescue.img.xz'
     if not compressed.exists():
@@ -217,9 +237,18 @@ def backup(engine,storage,task,base):
         with temporary.open('rb') as f:os.fsync(f.fileno())
         os.replace(temporary,compressed);compressed.chmod(0o600);fsync_dir(private)
     task['backups']={p.name:{'path':str(p),'sha256':sha256(p),'bytes':p.stat().st_size} for p in (image,rescue_image,compressed)}
-    task['entry_hashes']={rel:sha256(private/'entries'/rel) for rel in ('boot.scr','boot.cmd','extlinux/extlinux.conf','armbianEnv.txt')}
+    task['entry_hashes']={rel:sha256(private/'entries'/rel) for rel in boot_platform.entry_names(c.board())}
+    if c.board()['id']=='wxy-oesp-v22':
+        from .boot_recovery import physical_identity
+        task['emmc_cid_sha256']=physical_identity(c,storage['partitions']['boot']['parent'])
+        task['recovery']={'protocol':1,'board':c.profile,'layout':c.board()['layout'],'anchor_abi':c.board()['anchor_abi'],
+            'slot':task['original_slot'],'files':{name:{'sha256':sha256(path),'bytes':path.stat().st_size} for name,path in
+            [('kernel',c.state/task['original_boot']['kernel']['path']),('dtb',c.state/task['original_boot']['dtb']['path']),
+             ('initramfs',base/'recovery-initramfs')]},'signed_manifest':read_json(base/'manifest.json')}
     task['exports']=str(private/'EXPORT.json')
-    atomic_json(task['exports'],{'task_id':task['task_id'],'start_lba':storage['partitions']['boot']['start'],
+    atomic_json(task['exports'],{'protocol':1,'task_id':task['task_id'],'device_id':task['device_id'],
+                'emmc_cid_sha256':task.get('emmc_cid_sha256'),'recovery':task.get('recovery'),
+                'start_lba':storage['partitions']['boot']['start'],
                 'sectors':storage['partitions']['boot']['size']//512,'files':task['backups'],'private':True,'whole_emmc_image':False})
     task['stage']='backup-ready';save(c,task)
 
@@ -274,7 +303,8 @@ def apply(engine,bundle=None,request_id=None,exported=None,commit=False):
             for item in task['backups'].values():
                 require(Path(item['path']).stat().st_size==item['bytes'] and sha256(item['path'])==item['sha256'],'boot_backup_hash','Private backup changed before BOOT switch')
             task['backup_exported_sha256']=exported;task['stage']='queued';save(c,task)
-        elif task['stage']=='awaiting-watchdog' and commit:return commit_candidate(engine,task,storage)
+        elif task['stage'] in ('awaiting-watchdog','preparing-system','updating-system') and commit:
+            return commit_candidate(engine,task,storage)
         if task['stage'] in ('queued','deploying-rescue','installing-entries','entry-switching'):
             if not c.simulate:run('systemctl','start','--no-block','armhpc-ota-boot-maintenance.service')
             else:return run_candidate(engine,task,m,rescue,base,storage,d)
@@ -323,9 +353,9 @@ def worker_locked(engine,task,m,rescue,base,storage,d):
     with boot_root(engine,storage) as root:
         folder=root/'armhpc-maintenance'/task['release'];folder.mkdir(parents=True,exist_ok=True)
         for name in ('kernel','dtb','initramfs'):
-            atomic_copy(base/name,folder/name,0o644);require(sha256(folder/name)==m['files'][name]['sha256'],'boot_hash','Installed BOOT file changed')
+            boot_platform.copy(c,base/name,folder/name);require(sha256(folder/name)==m['files'][name]['sha256'],'boot_hash','Installed BOOT file changed')
         task['stage']='entry-switching';save(c,task)
-        install_entries(c,root,'/armhpc-maintenance/'+task['release'],args(task['inactive_slot'],task['task_id']))
+        install_entries(c,root,'/armhpc-maintenance/'+task['release'],args(task['inactive_slot'],task['task_id'],board=c.board()))
     task['stage']='awaiting-watchdog';task['checkpoints'].append('entries-switched');save(c,task)
     engine.clock.flush('boot-candidate-reboot')
     if not c.simulate:engine.backend.request_reboot()
@@ -337,26 +367,44 @@ def rollback(engine,request_id=None):
     require(c.simulate or os.geteuid()==0,'root','BOOT rollback requires root')
     with engine.store.lock():
         task=record(c);require(task and request_id==task['task_id'],'boot_task','Use original BOOT task ID')
-        d=discover(c);storage=layout(c,d,initialized=True);engine._require_shared_mount(storage)
+        d=discover(c,recovery=True)
+        if d.get('boot_recovery'):
+            from .boot_recovery import recovery_storage
+            storage=recovery_storage(engine,d,task)
+        else:storage=layout(c,d,initialized=True)
+        engine._require_shared_mount(storage)
         require(d['mode']=='rescue','boot_mode','BOOT rollback requires Rescue')
         from .watchdog import require_idle
-        require_idle(c);task['stage']='rolling-back';save(c,task)
+        require_idle(c)
+        system_job=engine.store.read(task['system_job_id']) if task.get('system_job_id') else None
+        require(not system_job or system_job['stage'] in TERMINAL,'job_active','Finish the paired system task before BOOT rollback')
+        task['stage']='rolling-back';save(c,task)
         entries=Path(task['backups']['BOOT-original.img']['path']).parent/'entries'
         for rel,digest in task['entry_hashes'].items():
             require(sha256(entries/rel)==digest,'boot_backup_hash','Saved boot entry changed')
         with boot_root(engine,storage) as root:
-            for rel in ('boot.scr','boot.cmd','extlinux/extlinux.conf','armbianEnv.txt'):atomic_copy(entries/rel,root/rel,0o644)
+            for rel in task['entry_hashes']:boot_platform.copy(c,entries/rel,root/rel)
         ctl=engine.store.control()
         ctl['confirmed']['rescue']={'slot':task['original_slot'],'boot':task['original_boot']}
         ctl['next']={'target':'rescue','slot':task['original_slot'],'trial':False};ctl['trial']=None
-        ctl['system_blocked']=task['previous_system_blocked'];engine.store.write_control(ctl)
-        from .deployment import complete
-        complete(c,'rescue_'+task['inactive_slot'])
-        task['stage']='rolled-back';save(c,task);return status(c)
+        ctl['system_blocked']=task['previous_system_blocked'] or bool(system_job and system_job.get('write_started'))
+        if system_job and system_job.get('write_started'):ctl['confirmed']['system']=task.get('original_system')
+        engine.store.write_control(ctl)
+        from .deployment import abandon_boot
+        task['stage']='rolled-back'
+        abandon_boot(c,'rescue_'+task['inactive_slot'],task)
+        save(c,task);return status(c)
 
 
 def commit_candidate(engine,task,storage):
-    c=engine.config;require(task.get('ordinary_boot_healthy'),'boot_health','No candidate health evidence')
+    c=engine.config
+    if task['stage']=='updating-system':
+        finish_paired_system(engine,engine.store.read(task['system_job_id']))
+        return status(c)
+    if task['stage']=='preparing-system':
+        require(task.get('watchdog_checks_completed'),'watchdog_acceptance','BOOT acceptance was not completed')
+        return begin_paired_system(engine,task,storage)
+    require(task.get('ordinary_boot_healthy'),'boot_health','No candidate health evidence')
     records=[read_json(p) for p in (c.state/'watchdog').glob('????????-????-????-????-????????????.json')]
     records=[r for r in records if r.get('stage')=='recovered-confirmed' and
              r.get('boot')==task['candidate_boot'] and r.get('slot')==task['inactive_slot']]
@@ -365,11 +413,15 @@ def commit_candidate(engine,task,storage):
                 'watchdog_acceptance','Need three real expiry recoveries with AND without SATA')
     require(any(r.get('kind')=='panic' for r in records) and not c.simulate,'watchdog_acceptance','Real panic acceptance required')
     system=task.get('original_system')
-    require(not system or all(system['boot'][k]['sha256']==task['candidate_boot'][k]['sha256'] for k in ('kernel','dtb')),
-            'normal_pairing','Normal system must have paired kernel/DTB before final BOOT commit')
+    paired=not system or all(system['boot'][k]['sha256']==task['candidate_boot'][k]['sha256'] for k in ('kernel','dtb'))
+    if not paired:
+        bundle=verify((c.cache/'boot-maintenance'/task['bundle_sha256']/'manifest.json').read_bytes(),c.trust)
+        require('system-rootfs' in bundle['files'],'normal_pairing','Supply the signed paired system payload before BOOT commit')
+        task['watchdog_checks_completed']=True;task['stage']='preparing-system';save(c,task)
+        return begin_paired_system(engine,task,storage)
     with boot_root(engine,storage) as root:
         install_entries(c,root,'/armhpc-maintenance/'+task['release'],
-                        'rootfstype=squashfs ro rootwait boot=armhpc net.ifnames=0 console=ttyS2,1500000 console=tty1 systemd.unified_cgroup_hierarchy=1')
+                        boot_platform.arguments(c.board()))
     ctl=engine.store.control();ctl['confirmed']['rescue']={'slot':task['inactive_slot'],'boot':task['candidate_boot']}
     ctl['system_blocked']=task['previous_system_blocked'];ctl['next']=task['previous_next'];ctl['trial']=None
     ctl['highest_boot_sequence']=task['sequence']
@@ -377,6 +429,58 @@ def commit_candidate(engine,task,storage):
     ctl['anchor_sha256']=verify((c.cache/'boot-maintenance'/task['bundle_sha256']/'manifest.json').read_bytes(),c.trust)['anchor_sha256']
     engine.store.write_control(ctl);task['stage']='committed';task['internal_watchdog_passed']=True;save(c,task)
     return status(c)
+
+
+def begin_paired_system(engine,task,storage):
+    c=engine.config
+    require(task['stage']=='preparing-system' and task.get('watchdog_checks_completed'),
+            'watchdog_acceptance','Paired deployment requires completed BOOT acceptance')
+    d=discover(c)
+    require(d['mode']=='rescue' and d['root']==storage['partitions']['rescue_'+task['inactive_slot']]['path'],
+            'boot_candidate','Enter the healthy paired Rescue before updating the system')
+    require(storage['partitions'].get('system') and storage['partitions'].get('data'),
+            'system_missing','Reconnect the bound SATA system and DATA disk')
+    m,rescue,base,_=validate_bundle(engine,task['bundle'])
+    require('system-rootfs' in m['files'],'normal_pairing','Signed paired system payload is missing')
+    control=engine.store.control()
+    control['confirmed']['rescue']={'slot':task['inactive_slot'],'boot':task['candidate_boot']}
+    control['system_blocked']=True;control['trial']=None
+    control['next']={'target':'rescue','slot':task['inactive_slot'],'trial':False}
+    engine.store.write_control(control)
+    preview=engine.plan(rescue,target='system')
+    job_id=task.get('system_job_id') or str(uuid.uuid5(uuid.UUID(task['task_id']),'paired-system'))
+    job_path=engine.store.job_path(job_id)
+    if job_path.is_file():
+        job=engine.store.read(job_id)
+        require(job.get('kind')=='boot-maintenance-system' and job['release']==task['release'] and
+                job['device_id']==task['device_id'],'boot_system_binding','Paired system job binding changed')
+    else:
+        job=engine.store.create(rescue,'system',preview,kind='boot-maintenance-system',request_id=job_id,local_only=True)
+    task['system_job_id']=job_id;save(c,task)
+    with boot_root(engine,storage) as root:
+        install_entries(c,root,'/armhpc-maintenance/'+task['release'],boot_platform.arguments(c.board(),watchdog=True))
+    task['stage']='updating-system';save(c,task)
+    if not c.simulate:run('systemctl','start','--no-block','armhpc-ota-worker.service')
+    return status(c)
+
+
+def finish_paired_system(engine,job):
+    c=engine.config;task=record(c)
+    if not task or task['stage']!='updating-system' or not job or job['job_id']!=task.get('system_job_id'):
+        return False
+    require(job.get('kind')=='boot-maintenance-system' and job['release']==task['release'] and
+            job['device_id']==task['device_id'],'boot_system_binding','Paired system job differs')
+    if job['stage']!='succeeded':return False
+    require('system-health-passed' in job['checkpoints'] and task.get('watchdog_checks_completed'),
+            'boot_health','Paired system has no health confirmation')
+    _,_,control=engine._recheck(job)
+    require(control['confirmed']['system']['boot']==job['system_candidate']['boot'],
+            'boot_system_binding','Confirmed system differs from the paired deployment')
+    control['highest_boot_sequence']=task['sequence']
+    control['anchor_sha256']=verify((c.cache/'boot-maintenance'/task['bundle_sha256']/'manifest.json').read_bytes(),c.trust)['anchor_sha256']
+    engine.store.write_control(control)
+    task.update(stage='committed',internal_watchdog_passed=not bool(c.simulate));save(c,task)
+    return True
 
 
 def confirm_diagnostic(engine):

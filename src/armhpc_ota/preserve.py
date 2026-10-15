@@ -22,6 +22,7 @@ POLICY = (
     'etc/systemd/system/k3s.service.d', 'etc/systemd/system/k3s-agent.service.d',
     'etc/chrony/chrony.conf', 'etc/chrony/conf.d', 'etc/chrony/sources.d',
     'etc/machine-id', 'var/lib/armhpc/clock-floor.json', 'var/lib/armhpc/clock-resume.json', 'var/lib/armhpc/network-identity.json', 'var/lib/armhpc/k3s',
+    'var/lib/armhpc/network-ports-identity.json','var/lib/armhpc/fan-settings.json',
     'etc/armhpc/k3s.json', 'etc/armhpc/installation-policy.json',
     'etc/image-framework/k3s.json', 'var/lib/image-framework/k3s', 'etc/rancher/node',
     'etc/sysctl.d/90-k3s.conf',

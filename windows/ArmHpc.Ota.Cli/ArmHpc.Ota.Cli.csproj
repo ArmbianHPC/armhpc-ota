@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>Exe</OutputType><TargetFrameworks>net10.0;net10.0-windows</TargetFrameworks><RuntimeIdentifiers>win-x64;linux-x64;linux-arm64</RuntimeIdentifiers><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AssemblyName>ARMHPC-OTA-CLI</AssemblyName><Version>1.1.0</Version></PropertyGroup>
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFrameworks>net10.0;net10.0-windows</TargetFrameworks><RuntimeIdentifiers>win-x64;linux-x64;linux-arm64</RuntimeIdentifiers><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AssemblyName>ARMHPC-OTA-CLI</AssemblyName><Version>1.2.0</Version></PropertyGroup>
   <ItemGroup><ProjectReference Include="../ArmHpc.Ota.Core/ArmHpc.Ota.Core.csproj" /></ItemGroup>
 </Project>

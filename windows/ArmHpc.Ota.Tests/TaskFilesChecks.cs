@@ -12,7 +12,7 @@ public static class TaskFilesChecks
         File.WriteAllText(old,"signed fixture old bytes");File.Copy(old,moved);File.WriteAllText(newer,"signed fixture new version");
         try
         {
-            var task=AutomaticTask.Create("file-fixture",new UpgradeOptions("",Bundle:old,ToolsOnly:true));
+            var task=AutomaticTask.Create("file-fixture",new UpgradeOptions("",Bundle:old,ToolsOnly:true,MinimumAgent:"1.0.0"));
             task=task with {Stage="paused",Phase="maintaining"};File.Delete(old);
             var relocated=TaskFiles.SelectTools(task,moved);
             check(relocated.Task.Options.Bundle==Path.GetFullPath(moved) && relocated.Task.MaintenanceId==task.MaintenanceId && relocated.Task.TaskId==task.TaskId && relocated.Task.Options.BundleSha256==task.Options.BundleSha256,"selected relocated maintenance file replaces the missing old path while preserving all approved IDs and hash");

@@ -41,6 +41,23 @@ class SharedResourcesTests(unittest.TestCase):
         self.payload = Path(self.tmp.name)
         self.rows = add_resources(self.payload)
 
+    def test_explicit_boards_select_matching_code_and_reject_collisions(self):
+        rows=[row for row in self.rows if row['scope']!='board']
+        for board in ('wxy-oect-original','wxy-oesp-v22'):
+            source=self.payload/'compat/framework/boards'/board/'phy_leds.py'
+            source.parent.mkdir(parents=True);source.write_text('# '+board+'\n')
+            rows.append({'scope':'board','board':board,'target':'usr/lib/armhpc/phy_leds.py',
+                         'source':source.relative_to(self.payload).as_posix(),
+                         'sha256':hashlib.sha256(source.read_bytes()).hexdigest()})
+        atomic_json(self.payload/'compat/framework-files.json',{'protocol':1,'files':rows})
+        self.assertNotIn('usr/lib/armhpc/phy_leds.py',shared_resources.files(self.payload,'system'))
+        for board in ('wxy-oect-original','wxy-oesp-v22'):
+            chosen=shared_resources.files(self.payload,'system',board)
+            self.assertIn(board,chosen['usr/lib/armhpc/phy_leds.py'].read_text())
+        rows.append(dict(rows[-1]))
+        atomic_json(self.payload/'compat/framework-files.json',{'protocol':1,'files':rows})
+        with self.assertRaises(OTAError):shared_resources.files(self.payload,'system','wxy-oesp-v22')
+
     def test_roles_exclude_other_environment_commands(self):
         normal = shared_resources.files(self.payload, 'system')
         rescue = shared_resources.files(self.payload, 'rescue_b')

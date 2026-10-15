@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-ARMHPC OTA **1.1.0** 是面向 ARM Linux 系统的通用升级与设备管理平台，包含共享设备端引擎、Windows GUI 和 Windows／Linux 上位机 CLI。
+ARMHPC OTA **1.2.0** 是面向 ARM Linux 系统的通用升级与设备管理平台，包含共享设备端引擎、Windows GUI 和 Windows／Linux 上位机 CLI。
 
 升级流程与板卡的存储、引导接入分开维护。WXY OEC Turbo（OECT）是首个接入设备，新增设备使用各自的板卡配置及兼容固件包。
 
@@ -59,9 +59,11 @@ armhpc-rescue ota recover --release current --target system --yes --json
 - [自动升级与重连](docs/AUTOMATIC-UPGRADE.md)
 - [签名与发行](docs/RELEASES.zh-CN.md)
 - [软件构建](docs/BUILD.md)
-- [v1.1.0 更新说明](docs/releases/v1.1.0.zh-CN.md)
+- [v1.2.0 更新说明](docs/releases/v1.2.0.zh-CN.md)
 - [已知问题](docs/KNOWN-ISSUES.md)
 
 ## 许可证
 
 原创代码采用 **GPL-3.0-only**；第三方组件保留原许可证。详见 [LICENSE](LICENSE)、[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 和各软件包中的许可材料。
+
+OESP 使用独立的板卡配置、存储策略和配套固件包；维护包按板卡选择固件、风扇及性能服务资源。
