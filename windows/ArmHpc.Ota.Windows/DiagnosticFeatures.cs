@@ -120,7 +120,7 @@ public partial class MainWindow
             {
                 if(Protocol.Text(existing,"bundle_sha256")!=hashOfBundle)throw new InvalidOperationException("现有 BOOT 任务绑定其他包，请先查询或回滚。");
                 id=Protocol.Text(existing,"task_id");
-                if(Protocol.Text(existing,"stage") is "awaiting-watchdog" or "preparing-system" or "updating-system")
+                if(Protocol.Text(existing,"stage") is "awaiting-watchdog" or "awaiting-firmware" or "preparing-system" or "updating-system")
                 {Show(current.Data);return;}
             }
             else if(File.Exists(bindingFile))

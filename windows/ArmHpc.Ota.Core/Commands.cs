@@ -12,7 +12,7 @@ public static class Commands
         int start = 0;
         if (command is "source" or "tools" or "boot")
         {
-            if (arguments.Count == 0 || !(command == "source" ? new[] {"show","set","test"} : (command=="boot"?new[] {"plan","apply","status","rollback","restore"}:new[] {"status","update"})).Contains(arguments[0])) throw new ArgumentException("未知子操作。");
+            if (arguments.Count == 0 || !(command == "source" ? new[] {"show","set","test"} : (command=="boot"?new[] {"plan","enter","apply","status","rollback","restore"}:new[] {"status","update"})).Contains(arguments[0])) throw new ArgumentException("未知子操作。");
             start = 1;
         }
         for (int index = start; index < arguments.Count; index++)

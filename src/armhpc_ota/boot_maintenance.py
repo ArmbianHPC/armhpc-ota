@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 import lzma
 import os
+import re
 from pathlib import Path
 import shutil
 import tarfile
@@ -16,6 +17,20 @@ from .store import TERMINAL
 from . import boot_platform
 
 DONE = ('rolled-back', 'committed')
+
+
+def version_tuple(value):
+    require(isinstance(value, str) and re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', value),
+            'boot_agent', 'Use a complete numeric minimum agent version')
+    return tuple(map(int, value.split('.')))
+
+
+def firmware_update(task):
+    return task.get('purpose', 'watchdog-diagnostic') == 'firmware-update'
+
+
+def acceptance_complete(task):
+    return bool(task.get('firmware_boot_healthy') if firmware_update(task) else task.get('watchdog_checks_completed'))
 
 
 def record(config):
@@ -81,9 +96,13 @@ def validate_bundle(engine, bundle):
                 'boot_compatibility','Wrong board/architecture/layout/ABI')
         from . import __version__
         minimum=m.get('minimum_agent')
-        require(minimum in ('0.3.4','1.1.1','1.1.2','1.1.3','1.1.4') and tuple(map(int,__version__.split('.'))) >= tuple(map(int,minimum.split('.'))),
+        require(version_tuple(__version__) >= version_tuple(minimum) >= (0,3,4),
                 'boot_agent','Update the OTA agent before BOOT maintenance')
-        require(b['id']!='wxy-oesp-v22' or minimum in ('1.1.1','1.1.2','1.1.3','1.1.4'),'boot_agent','OESP BOOT maintenance requires agent 1.1.1 or later')
+        require(b['id']!='wxy-oesp-v22' or version_tuple(minimum)>=(1,1,1),'boot_agent','OESP BOOT maintenance requires agent 1.1.1 or later')
+        purpose=m.get('purpose','watchdog-diagnostic')
+        require(purpose in ('watchdog-diagnostic','firmware-update'),'boot_purpose','Unknown signed BOOT purpose')
+        require(purpose!='firmware-update' or version_tuple(minimum)>=(1,2,1),
+                'boot_agent','Normal firmware updates require agent 1.2.1 or later')
         identifier(m['release'])
         require(isinstance(m['sequence'],int) and m['sequence']>engine.store.control().get('highest_boot_sequence',0),
                 'boot_sequence','BOOT sequence must increase')
@@ -112,7 +131,7 @@ def validate_bundle(engine, bundle):
         require(a['sha256']==entries[file]['sha256'] and a['size']==entries[file]['size'],'boot_pair','Rescue/BOOT pairing differs')
         atomic_copy(base/file,c.cache/a['sha256'])
     if 'system-rootfs' in entries:
-        require(m['minimum_agent'] in ('1.1.1','1.1.2','1.1.3','1.1.4'),'boot_agent','Paired system deployment requires agent 1.1.1 or later')
+        require(version_tuple(m['minimum_agent'])>=(1,1,1),'boot_agent','Paired system deployment requires agent 1.1.1 or later')
         require(rescue['kernels'].get('system')==m['kernel_release'],'boot_system_pair','System kernel differs')
         for name in ('kernel','dtb','initramfs','rootfs'):
             a=next(a for a in rescue['artifacts'] if a['role']=='system-'+name)
@@ -129,6 +148,9 @@ def validate_bundle(engine, bundle):
         boot_platform.validate_load_window(b,base/'kernel',base/'dtb',base/'initramfs')
     stored=c.state/'boot-maintenance/releases'/m['release']/'manifest.json'
     require(not stored.exists() or stored.read_bytes()==raw,'release_reuse','Signed BOOT release IDs are immutable')
+    retained=base/'bundle.tar.xz'
+    require(not retained.is_symlink(),'boot_path','Retained bundle cannot be a link')
+    if path!=retained.resolve():atomic_copy(path,retained)
     from .metadata import anchor_digest
     expected=anchor_digest([{'id':k,**entries[k]} for k in ('kernel','initramfs','dtb')])
     require(m.get('anchor_sha256')==expected,'boot_anchor_hash','Anchor digest differs from candidate triple')
@@ -264,10 +286,36 @@ def plan(engine,bundle):
         recovery_bytes=sum((c.state/original['boot'][k]['path']).stat().st_size for k in ('kernel','dtb'))+m['files']['recovery-initramfs']['size']
         require(shutil.disk_usage('/boot').free>=max(candidate_bytes,recovery_bytes)+16*1024**2,'boot_partition_space','BOOT lacks capacity for retained and candidate/recovery files')
     require(shutil.disk_usage(c.cache).free>=needed,'boot_space','No capacity for BOOT backup/recovery')
-    return {'release':m['release'],'sequence':m['sequence'],'device_id':d['device_id'],'mode':d['mode'],
+    return {'release':m['release'],'purpose':m.get('purpose','watchdog-diagnostic'),'sequence':m['sequence'],'device_id':d['device_id'],'mode':d['mode'],
             'boot':{'path':p['path'],'start_lba':p['start'],'sectors':p['size']//512},
             'inactive_slot':'b' if original['slot']=='a' else 'a','required_cache_bytes':needed,
-            'bundle_sha256':digest,'original_slot':original['slot'],'recovery_export_required':True,'hardware_verified':False}
+            'bundle':str(base/'bundle.tar.xz'),'bundle_sha256':digest,'original_slot':original['slot'],'recovery_export_required':True,'hardware_verified':False}
+
+
+def enter(engine,bundle,request_id):
+    c=engine.config
+    require(c.simulate or os.geteuid()==0,'root','Entering Rescue requires root')
+    require(request_id and str(uuid.UUID(request_id))==request_id,'boot_request','Use a canonical persistent request ID')
+    with engine.store.lock():
+        preview=plan(engine,bundle)
+        d=discover(c)
+        if d['mode']=='rescue':return {**preview,'entered':True}
+        from .maintenance import require_complete
+        from .watchdog import require_idle as watchdog_idle
+        from .preserve import require_network_confirmed
+        require_complete(c);watchdog_idle(c);require_idle(c)
+        require_network_confirmed(c.simulate/'roots/system' if c.simulate else Path('/'))
+        job=engine.store.read()
+        require(not job or job['stage'] in TERMINAL,'job_active','Finish the active OTA job first')
+        control=engine.store.control()
+        original=control['confirmed']['rescue']
+        control['next']={'target':'rescue','slot':original['slot'],'trial':False}
+        engine.store.write_control(control)
+        atomic_json(c.state/'boot-maintenance/enter.json',{'request_id':request_id,'device_id':d['device_id'],
+                    'bundle_sha256':preview['bundle_sha256'],'boot_id':d['boot_id']})
+        engine.clock.flush('firmware-enter-rescue')
+        if not c.simulate:engine.backend.request_reboot()
+        return {**preview,'entered':False,'reboot_requested':True}
 
 
 def apply(engine,bundle=None,request_id=None,exported=None,commit=False):
@@ -279,15 +327,19 @@ def apply(engine,bundle=None,request_id=None,exported=None,commit=False):
         require_complete(c)
         from .watchdog import require_idle
         require_idle(c)
-        job=engine.store.read();require(not job or job['stage'] in TERMINAL,'job_active','Another OTA job is active')
         old=record(c)
+        if old and old['task_id']==request_id and old['stage'] in (*DONE,'updating-system'):
+            require(old['device_id']==d['device_id'] and (not bundle or sha256(bundle)==old['bundle_sha256']),
+                    'boot_binding','Original BOOT request binding changed')
+            return status(c)
+        job=engine.store.read();require(not job or job['stage'] in TERMINAL,'job_active','Another OTA job is active')
         if old and old['stage'] not in DONE:
             require(request_id==old['task_id'],'boot_task','Resume original BOOT ID');task=old;bundle=task['bundle']
             require(sha256(bundle)==task['bundle_sha256'],'boot_bundle_changed','Approved bundle changed')
         else:
             require(bundle and request_id and str(uuid.UUID(request_id))==request_id,'boot_request','Supply bundle and canonical ID')
             preview=plan(engine,bundle);ctl=engine.store.control()
-            task={**preview,'task_id':request_id,'bundle':str(Path(bundle).resolve()),'stage':'preparing',
+            task={**preview,'task_id':request_id,'stage':'preparing',
                   'original_boot':ctl['confirmed']['rescue']['boot'],'original_root':d['root'],'original_system':ctl['confirmed'].get('system'),
                   'previous_system_blocked':ctl.get('system_blocked',False),'previous_next':ctl.get('next'),'checkpoints':[]}
             require(d['root']==storage['partitions']['rescue_'+task['original_slot']]['path'],'boot_running_slot','First enter the original confirmed Rescue')
@@ -303,7 +355,7 @@ def apply(engine,bundle=None,request_id=None,exported=None,commit=False):
             for item in task['backups'].values():
                 require(Path(item['path']).stat().st_size==item['bytes'] and sha256(item['path'])==item['sha256'],'boot_backup_hash','Private backup changed before BOOT switch')
             task['backup_exported_sha256']=exported;task['stage']='queued';save(c,task)
-        elif task['stage'] in ('awaiting-watchdog','preparing-system','updating-system') and commit:
+        elif task['stage'] in ('awaiting-watchdog','awaiting-firmware','preparing-system','updating-system') and commit:
             return commit_candidate(engine,task,storage)
         if task['stage'] in ('queued','deploying-rescue','installing-entries','entry-switching'):
             if not c.simulate:run('systemctl','start','--no-block','armhpc-ota-boot-maintenance.service')
@@ -356,7 +408,8 @@ def worker_locked(engine,task,m,rescue,base,storage,d):
             boot_platform.copy(c,base/name,folder/name);require(sha256(folder/name)==m['files'][name]['sha256'],'boot_hash','Installed BOOT file changed')
         task['stage']='entry-switching';save(c,task)
         install_entries(c,root,'/armhpc-maintenance/'+task['release'],args(task['inactive_slot'],task['task_id'],board=c.board()))
-    task['stage']='awaiting-watchdog';task['checkpoints'].append('entries-switched');save(c,task)
+    task['stage']='awaiting-firmware' if firmware_update(task) else 'awaiting-watchdog'
+    task['checkpoints'].append('entries-switched');save(c,task)
     engine.clock.flush('boot-candidate-reboot')
     if not c.simulate:engine.backend.request_reboot()
     return status(c)
@@ -398,26 +451,33 @@ def rollback(engine,request_id=None):
 
 def commit_candidate(engine,task,storage):
     c=engine.config
+    signed=verify((c.cache/'boot-maintenance'/task['bundle_sha256']/'manifest.json').read_bytes(),c.trust)
+    require(task.get('purpose','watchdog-diagnostic')==signed.get('purpose','watchdog-diagnostic'),
+            'boot_purpose','Task purpose differs from the signed update')
     if task['stage']=='updating-system':
         finish_paired_system(engine,engine.store.read(task['system_job_id']))
         return status(c)
     if task['stage']=='preparing-system':
-        require(task.get('watchdog_checks_completed'),'watchdog_acceptance','BOOT acceptance was not completed')
+        require(acceptance_complete(task),'boot_acceptance','BOOT acceptance was not completed')
         return begin_paired_system(engine,task,storage)
     require(task.get('ordinary_boot_healthy'),'boot_health','No candidate health evidence')
+    if firmware_update(task):
+        require(task.get('firmware_boot_healthy'),'boot_health','No normal firmware boot confirmation')
     records=[read_json(p) for p in (c.state/'watchdog').glob('????????-????-????-????-????????????.json')]
     records=[r for r in records if r.get('stage')=='recovered-confirmed' and
              r.get('boot')==task['candidate_boot'] and r.get('slot')==task['inactive_slot']]
-    for sata in ('present','absent'):
+    for sata in (() if firmware_update(task) else ('present','absent')):
         require(sum(r.get('kind')=='expire' and r.get('sata_condition')==sata for r in records)>=3,
                 'watchdog_acceptance','Need three real expiry recoveries with AND without SATA')
-    require(any(r.get('kind')=='panic' for r in records) and not c.simulate,'watchdog_acceptance','Real panic acceptance required')
+    if not firmware_update(task):
+        require(any(r.get('kind')=='panic' for r in records) and not c.simulate,'watchdog_acceptance','Real panic acceptance required')
     system=task.get('original_system')
     paired=not system or all(system['boot'][k]['sha256']==task['candidate_boot'][k]['sha256'] for k in ('kernel','dtb'))
     if not paired:
         bundle=verify((c.cache/'boot-maintenance'/task['bundle_sha256']/'manifest.json').read_bytes(),c.trust)
         require('system-rootfs' in bundle['files'],'normal_pairing','Supply the signed paired system payload before BOOT commit')
-        task['watchdog_checks_completed']=True;task['stage']='preparing-system';save(c,task)
+        if not firmware_update(task):task['watchdog_checks_completed']=True
+        task['stage']='preparing-system';save(c,task)
         return begin_paired_system(engine,task,storage)
     with boot_root(engine,storage) as root:
         install_entries(c,root,'/armhpc-maintenance/'+task['release'],
@@ -427,13 +487,16 @@ def commit_candidate(engine,task,storage):
     ctl['highest_boot_sequence']=task['sequence']
     # Anchor digest is recomputed from the actual candidate bytes by the publisher.
     ctl['anchor_sha256']=verify((c.cache/'boot-maintenance'/task['bundle_sha256']/'manifest.json').read_bytes(),c.trust)['anchor_sha256']
-    engine.store.write_control(ctl);task['stage']='committed';task['internal_watchdog_passed']=True;save(c,task)
+    engine.store.write_control(ctl);task['stage']='committed'
+    task['internal_watchdog_passed']=not firmware_update(task) and not bool(c.simulate)
+    task['firmware_boot_verified']=firmware_update(task) and not bool(c.simulate)
+    save(c,task)
     return status(c)
 
 
 def begin_paired_system(engine,task,storage):
     c=engine.config
-    require(task['stage']=='preparing-system' and task.get('watchdog_checks_completed'),
+    require(task['stage']=='preparing-system' and acceptance_complete(task),
             'watchdog_acceptance','Paired deployment requires completed BOOT acceptance')
     d=discover(c)
     require(d['mode']=='rescue' and d['root']==storage['partitions']['rescue_'+task['inactive_slot']]['path'],
@@ -471,7 +534,7 @@ def finish_paired_system(engine,job):
     require(job.get('kind')=='boot-maintenance-system' and job['release']==task['release'] and
             job['device_id']==task['device_id'],'boot_system_binding','Paired system job differs')
     if job['stage']!='succeeded':return False
-    require('system-health-passed' in job['checkpoints'] and task.get('watchdog_checks_completed'),
+    require('system-health-passed' in job['checkpoints'] and acceptance_complete(task),
             'boot_health','Paired system has no health confirmation')
     _,_,control=engine._recheck(job)
     require(control['confirmed']['system']['boot']==job['system_candidate']['boot'],
@@ -479,13 +542,14 @@ def finish_paired_system(engine,job):
     control['highest_boot_sequence']=task['sequence']
     control['anchor_sha256']=verify((c.cache/'boot-maintenance'/task['bundle_sha256']/'manifest.json').read_bytes(),c.trust)['anchor_sha256']
     engine.store.write_control(control)
-    task.update(stage='committed',internal_watchdog_passed=not bool(c.simulate));save(c,task)
+    task.update(stage='committed',firmware_boot_verified=firmware_update(task) and not bool(c.simulate),
+                internal_watchdog_passed=not firmware_update(task) and not bool(c.simulate));save(c,task)
     return True
 
 
 def confirm_diagnostic(engine):
     task=record(engine.config)
-    if not task or task['stage']!='awaiting-watchdog':return False
+    if not task or task['stage'] not in ('awaiting-watchdog','awaiting-firmware'):return False
     d=discover(engine.config);storage=layout(engine.config,d,initialized=True)
     require(d['mode']=='rescue' and d['root']==storage['partitions']['rescue_'+task['inactive_slot']]['path'],
             'boot_candidate','Wrong diagnostic root')
@@ -493,4 +557,9 @@ def confirm_diagnostic(engine):
            'manifest':{'kernels':{'rescue':task['candidate_boot']['kernel_release']}},
            'rescue_candidate':{'slot':task['inactive_slot']}}
     engine.backend.health(dummy,'rescue',storage)
-    task['ordinary_boot_healthy']=True;save(engine.config,task);return True
+    task['ordinary_boot_healthy']=True
+    if firmware_update(task):task['firmware_boot_healthy']=True
+    save(engine.config,task)
+    if firmware_update(task):
+        commit_candidate(engine,task,storage)
+    return True

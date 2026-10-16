@@ -69,11 +69,25 @@ def framework_files(framework):
         'usr/share/bash-completion/completions/armhpc-kube',
     )
     overlay=frame/'components/common/rootfs-overlay'
-    for name in ('armhpc-fan.service','armhpc-performance.service','armhpc-performance.timer'):
+    path=frame/'profiles/kernel/kubernetes.json'
+    if path.is_file():
+        rows.append((path,{'scope':'common','target':'usr/lib/armhpc/kernel-baseline.json',
+                          'source':'compat/framework/data/kernel-baseline.json','sha256':digest(path)}))
+    for name in ('armhpc-fan.service','armhpc-performance.service','armhpc-performance.timer',
+                 'armhpc-state.service','armhpc-runtime.service','armhpc-swap.service','armhpc-auth-recovery.service',
+                 'armhpc-management-ready.service','armhpc-health.service','armhpc-health.timer','armhpc-firewall.service'):
         service=overlay/'etc/systemd/system'/name
         if service.is_file():
             rows.append((service,{'scope':'common','target':'etc/systemd/system/'+name,
                                  'source':'compat/framework/services/'+name,'sha256':digest(service)}))
+    path=overlay/'etc/tmpfiles.d/armhpc-runtime.conf'
+    if path.is_file():
+        rows.append((path,{'scope':'common','target':'etc/tmpfiles.d/armhpc-runtime.conf',
+                          'source':'compat/framework/services/armhpc-runtime.conf','sha256':digest(path)}))
+    path=overlay/'etc/systemd/journald.conf.d/40-armhpc.conf'
+    if path.is_file():
+        rows.append((path,{'scope':'common','target':'etc/systemd/journald.conf.d/40-armhpc.conf',
+                          'source':'compat/framework/services/40-armhpc.conf','sha256':digest(path)}))
     if any((overlay/name).exists() for name in completion_targets):
         for name in completion_targets:
             path=overlay/name

@@ -15,6 +15,10 @@ from .io import atomic_json, read_json, sha256, inside, fsync_dir
 
 POLICY = (
     'root', 'home', 'etc/ssh/ssh_host_*', 'etc/ssh/sshd_config', 'etc/ssh/sshd_config.d',
+    'etc/ssh/image-framework-admin.conf', 'var/lib/armhpc/auth',
+    'var/lib/armhpc/firewall',
+    'etc/armhpc/management-network.json', 'var/lib/armhpc/network-config',
+    'etc/armhpc/data-identity.json',
     'etc/systemd/network', 'etc/NetworkManager/system-connections', 'etc/netplan',
     'etc/network/interfaces', 'etc/network/interfaces.d', 'etc/rancher/k3s',
     'etc/systemd/system/k3s.service', 'etc/systemd/system/k3s-agent.service',
@@ -41,6 +45,15 @@ def policy(target='system'):
 
 
 def require_network_confirmed(root):
+    firewall = Path(root) / 'var/lib/armhpc/firewall/state.json'
+    if firewall.exists():
+        require(not firewall.is_symlink() and read_json(firewall).get('stage')!='pending',
+                'firewall_pending','Confirm or roll back the firewall transaction before OTA')
+    auth = Path(root) / 'var/lib/armhpc/auth/state.json'
+    if auth.exists():
+        require(not auth.is_symlink(), 'auth_pending', 'Authentication state must not be a symbolic link')
+        require(read_json(auth).get('stage') not in ('key-check', 'policy-check'),
+                'auth_pending', 'Confirm or roll back SSH authentication before OTA or tool maintenance')
     path = Path(root) / 'var/lib/armhpc/network-config/transaction.json'
     if path.exists():
         require(not path.is_symlink(), 'network_pending', 'Network transaction must not be a symbolic link')

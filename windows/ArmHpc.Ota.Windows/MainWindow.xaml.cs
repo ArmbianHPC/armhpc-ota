@@ -71,6 +71,7 @@ public partial class MainWindow : Window
         latestStatus[id] = status;
         var clock=ClockPresentation.Describe(status,DateTimeOffset.Now);
         device.ClockStatus=clock.Caption;device.ClockDetail=clock.Detail;
+        var node=NodePresentation.Describe(status);device.NodeStatus=node.Caption;device.NodeDetail=node.Detail;
         device.DeviceId = id; device.Board = Protocol.Text(status, "board");
         if (string.IsNullOrEmpty(device.Name)) device.Name = device.Hostname.Length>0?device.Hostname:id[..Math.Min(12, id.Length)];
         var versions = new List<string>();

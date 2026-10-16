@@ -62,7 +62,7 @@ def parser():
     receive.add_argument('--manifest',required=True); receive.add_argument('--target',choices=('all','system','rescue'),default='all')
     receive.add_argument('--request-id',required=True);receive.add_argument('--phase',choices=('prepare','commit'),default='prepare')
     boot = sub.add_parser('boot'); common(boot, True)
-    boot.add_argument('action', choices=('plan', 'apply', 'status', 'rollback', 'restore'))
+    boot.add_argument('action', choices=('plan', 'enter', 'apply', 'status', 'rollback', 'restore'))
     boot.add_argument('--bundle'); boot.add_argument('--request-id')
     boot.add_argument('--exported-backup-sha256'); boot.add_argument('--commit', action='store_true')
     boot.add_argument('--execute',action='store_true',help='Restore the task-bound BOOT recovery image after preview')
@@ -98,6 +98,10 @@ def main(argv=None):
             if args.action == 'status': result = bm.status(config)
             elif args.action == 'plan':
                 require(args.bundle, 'boot_bundle', 'Supply --bundle'); result = bm.plan(engine,args.bundle)
+            elif args.action == 'enter':
+                require(args.bundle,'boot_bundle','Supply the verified firmware bundle before entering Rescue')
+                approval(args,{'reboot_to_confirmed_rescue':True,'request_id':args.request_id})
+                result=bm.enter(engine,args.bundle,args.request_id)
             elif args.action == 'restore':
                 from .boot_recovery import restore
                 result=restore(engine,args.request_id)

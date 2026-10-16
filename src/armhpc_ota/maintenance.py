@@ -228,6 +228,10 @@ def backup_and_install(engine, task, role, root, files):
     has_clock = 'etc/systemd/system/armhpc-clock-floor.service' in files
     has_fan = 'etc/systemd/system/armhpc-fan.service' in files
     has_performance = 'etc/systemd/system/armhpc-performance.service' in files
+    has_node = 'etc/systemd/system/armhpc-state.service' in files
+    if has_node:
+        from .node_resources import capture
+        capture(c,root,backup)
     if has_performance:
         require('etc/systemd/system/armhpc-performance.timer' in files,
                 'performance_resources','Performance service requires its timer')
@@ -285,6 +289,9 @@ def backup_and_install(engine, task, role, root, files):
         from .diagnostic_resources import configure
         configure(root, backup, task['rollback'])
     put_service(root, c)
+    if has_node:
+        from .node_resources import configure
+        configure(root,backup,task['rollback'])
 
 
 def worker(engine):
@@ -316,6 +323,10 @@ def worker(engine):
                 task['completed'].append(checkpoint); task['updated'] = now(); atomic_json(c.state/'maintenance/task.json', task)
             if not c.simulate:
                 run('systemctl', 'daemon-reload')
+                if 'etc/systemd/system/armhpc-state.service' in files:
+                    from .node_resources import activate
+                    current_role=next(role for role in task['roles'] if storage['partitions'][role]['path']==device['root'])
+                    activate(c,c.state/'maintenance/backups'/task['task_id']/current_role,task['rollback'])
                 if 'etc/systemd/system/armhpc-performance.service' in files:
                     from .performance_resources import activate
                     current_role=next(role for role in task['roles'] if storage['partitions'][role]['path']==device['root'])
@@ -391,6 +402,9 @@ def retain_installed_runtime(config, root):
     if (Path(root)/'etc/systemd/system/armhpc-performance.timer').is_file():
         from .performance_resources import enable
         enable(root)
+    if (Path(root)/'etc/systemd/system/armhpc-state.service').is_file():
+        from .node_resources import configure
+        configure(root)
 
 if __name__ == "__main__":
     raise SystemExit(main())

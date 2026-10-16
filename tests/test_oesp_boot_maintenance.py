@@ -96,7 +96,7 @@ class OespBootMaintenance(unittest.TestCase):
         with self.assertRaises(OTAError):
             watchdog.report(self.e,prepared['test_id'],confirmed=True)
 
-    def paired_bundle(self):
+    def paired_bundle(self,purpose='watchdog-diagnostic'):
         manifest_path,manifest=release(self.c,self.key,'paired-next',3,kernel='6.12.111-old')
         board=self.c.board()
         manifest.update(board=board['id'],layout=board['layout'],anchor_abi=board['anchor_abi'],minimum_agent='1.1.1')
@@ -117,7 +117,7 @@ class OespBootMaintenance(unittest.TestCase):
         build(manifest_path,files/'paired-next-rescue-rootfs',files/'paired-next-rescue-kernel',
               files/'paired-next-rescue-dtb',files/'paired-next-rescue-initramfs',self.recovery,
               bundle,self.key,'test',self.c.trust,2,self.c.state/self.old['kernel']['path'],
-              self.c.state/self.old['dtb']['path'],system_rootfs=files/'paired-next-system-rootfs')
+              self.c.state/self.old['dtb']['path'],system_rootfs=files/'paired-next-system-rootfs',purpose=purpose)
         return bundle
 
     def enter_paired_system_phase(self):

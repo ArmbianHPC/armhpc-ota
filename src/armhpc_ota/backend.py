@@ -451,6 +451,11 @@ class Backend:
             data_source = str(Path(run('findmnt', '-n', '-o', 'SOURCE', '/data')).resolve())
             require(data_source == storage['partitions']['data']['path'], 'health_data', 'DATA is not mounted from the expected partition')
         deadline = time.monotonic() + self.config.health_timeout
+        from .boot_maintenance import record as boot_record,firmware_update
+        boot_task=boot_record(self.config)
+        firmware=boot_task and firmware_update(boot_task) and (
+            job.get('kind')=='boot-maintenance-system' or job['job_id']=='boot-'+boot_task['task_id'])
+        last_firmware_error=None
         while time.monotonic() < deadline:
             ssh = subprocess.run(['systemctl', 'is-active', '--quiet', 'ssh.service']).returncode == 0
             addresses = run('ip', '-j', 'address', 'show', 'scope', 'global')
@@ -460,6 +465,13 @@ class Backend:
             guardian = subprocess.run(['systemctl', 'is-active', '--quiet', 'armhpc-ota-watchdog.service']).returncode == 0
             watchdog_required = runtime.get('watchdog') or 'armhpc.watchdog=1' in cmdline
             if ssh and connected and (guardian or not watchdog_required):
+                if firmware:
+                    try:
+                        from .node_runtime import firmware_health
+                        firmware_health(target)
+                    except OTAError as error:
+                        last_firmware_error=error
+                        time.sleep(2);continue
                 # fallback-health already acknowledged basic boot health before this service.
                 # Waiting for NTP cannot cause an otherwise healthy boot to expire its watchdog.
                 from .clock import Clock
@@ -469,6 +481,7 @@ class Backend:
                     clock.flush('health-confirmed')
                 return
             time.sleep(2)
+        if last_firmware_error:raise last_firmware_error
         raise OTAError('health_network', 'SSH and a routable IPv4 address were not ready before the trial deadline')
 
     def baseline(self, job, target):
@@ -578,7 +591,7 @@ class Backend:
         if target == 'system':
             normal, data = storage['partitions']['system'], storage['partitions']['data']
             lines.extend(['UUID=' + normal['uuid'] + ' / ext4 defaults,noatime 0 1',
-                          'UUID=' + data['uuid'] + ' /data ext4 defaults,noatime 0 2'])
+                          'UUID=' + data['uuid'] + ' /data ext4 defaults,noatime,nofail,x-systemd.device-timeout=10s 0 2'])
         else:
             cue = root_partition or storage['partitions']['rescue_a']
             if cue.get('fstype') != 'squashfs':

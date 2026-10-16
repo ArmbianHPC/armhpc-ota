@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-ARMHPC OTA **1.2.0** is a general update and device-management platform for ARM Linux systems. It combines a shared device engine with a Windows GUI and Windows/Linux controller CLIs.
+ARMHPC OTA **1.2.1** is a general update and device-management platform for ARM Linux systems. It combines a shared device engine with a Windows GUI and Windows/Linux controller CLIs.
 
 The update workflow is separated from board-specific storage and boot integration. WXY OEC Turbo (OECT) is the first integrated device; OESP uses a separate board profile, storage policy and compatible firmware packages.
 
@@ -62,7 +62,7 @@ Choose a system OTA package that matches the device's board profile from [armbia
 - [Automatic upgrades and reconnection](docs/AUTOMATIC-UPGRADE.md)
 - [Signing and releases](docs/RELEASES.md)
 - [Building the software](docs/BUILD.md)
-- [v1.2.0 release notes](docs/releases/v1.2.0.md) / [简体中文](docs/releases/v1.2.0.zh-CN.md)
+- [v1.2.1 release notes](docs/releases/v1.2.1.md) / [简体中文](docs/releases/v1.2.1.zh-CN.md)
 - [Known issues](docs/KNOWN-ISSUES.md)
 
 ## License

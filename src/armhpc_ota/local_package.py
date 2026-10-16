@@ -46,7 +46,18 @@ def inspect(package,output,release=None):
         file=inside(root,'blobs/'+item['sha256'])
         require(file.is_file() and file.stat().st_size==item['size'] and sha256(file)==item['sha256'],'package_hash','Local payload differs from manifest',role=item['role'])
         artifacts.append({'role':item['role'],'sha256':item['sha256'],'size':item['size'],'path':str(file)})
-    return {'release':manifest['release'],'manifest':str(path),'manifest_sha256':sha256(path),'artifacts':artifacts,
+    firmware=inside(root,'firmware/boot-update.tar.xz')
+    extra={}
+    if firmware.is_file():
+        with tarfile.open(firmware,'r:xz') as archive:
+            entry=archive.getmember('manifest.json')
+            require(entry.isfile() and entry.size<=1024**2,'boot_manifest','Invalid firmware envelope')
+            payload=json.loads(archive.extractfile(entry).read())['payload']
+        require(payload.get('purpose')=='firmware-update' and payload.get('release')==manifest['release']
+                and payload.get('board')==manifest['board'] and 'system-rootfs' in payload.get('files',{}),
+                'boot_pair','Firmware bundle does not match the selected complete release')
+        extra={'kind':'firmware-update','firmware_bundle':str(firmware),'firmware_sha256':sha256(firmware)}
+    return {**extra,'release':manifest['release'],'manifest':str(path),'manifest_sha256':sha256(path),'artifacts':artifacts,
             'board':manifest['board'],'architecture':manifest['architecture'],'signature_verification':'required_on_device'}
 
 

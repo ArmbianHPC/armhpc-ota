@@ -122,6 +122,7 @@ Check(sdkAttributes.OwnerCanRead && sdkAttributes.OwnerCanWrite && sdkAttributes
 sdkAttributes.SetPermissions(SshRunner.UploadFileMode);
 Check(sdkAttributes.OwnerCanRead && sdkAttributes.OwnerCanWrite && !sdkAttributes.OwnerCanExecute && !sdkAttributes.GroupCanRead && !sdkAttributes.GroupCanWrite && !sdkAttributes.GroupCanExecute && !sdkAttributes.OthersCanRead && !sdkAttributes.OthersCanWrite && !sdkAttributes.OthersCanExecute,"actual SDK upload-file mode grants owner-only rw");
 await AutomationChecks.Run(Check,Refused);
+await FirmwareChecks.Run(Check,Refused);
 await ManagementChecks.Run(Check,Refused);
 await CommandBatchChecks.Run(Check,Refused);
 await RebootChecks.Run(Check,Refused);
