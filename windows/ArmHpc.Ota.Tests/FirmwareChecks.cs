@@ -26,7 +26,7 @@ public static class FirmwareChecks
             check(connection.EnterCount==1 && connection.Exports==1 && connection.Id==task.JobId && saved?.BackupDirectory=="private/"+task.JobId,
                   "normal firmware exports a task-bound recovery backup before switching BOOT");
             var resume=new FirmwareConnection{Id=task.JobId,Stage="awaiting-firmware",Mode="rescue"};
-            result=await AutomaticUpgrade.Run(task with{Release="firmware-1.3.0",Kind="firmware-update",FirmwareBundle="/cache/bundle",FirmwareSha256=FirmwareConnection.Hash},resume,_=>{},_=>{},delay:_=>Task.CompletedTask,jobPolls:5);
+            result=await AutomaticUpgrade.Run(task with{Release="firmware-1.2.1",Kind="firmware-update",FirmwareBundle="/cache/bundle",FirmwareSha256=FirmwareConnection.Hash},resume,_=>{},_=>{},delay:_=>Task.CompletedTask,jobPolls:5);
             check(result.Stage=="succeeded" && resume.Pushes==0 && resume.Exports==0 && resume.MaintenanceQueries==0,
                   "a resumed firmware task only observes its original device request");
             var failedExport=new FirmwareConnection{FailExport=true};bool exportFailed=false;
@@ -54,7 +54,7 @@ public static class FirmwareChecks
         public const string Hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         public string? Id,Stage;public string Mode="system";public int EnterCount,Exports,FlashCount,Pushes,MaintenanceQueries;
         public bool LoseSwitchReply,FailExport,Frozen;
-        object? TaskRecord()=>Id is null?null:new{task_id=Id,device_id="device",release="firmware-1.3.0",purpose="firmware-update",
+        object? TaskRecord()=>Id is null?null:new{task_id=Id,device_id="device",release="firmware-1.2.1",purpose="firmware-update",
             bundle_sha256=Hash,stage=Stage,backups=new Dictionary<string,object>{{"BOOT-rescue.img.xz",new{sha256=Hash}}}};
         public Task<JsonElement> Command(string command,IReadOnlyList<string> arguments,bool yes,CancellationToken token)
         {
@@ -65,7 +65,7 @@ public static class FirmwareChecks
                     if(Stage=="awaiting-firmware")Stage="updating-system";
                     else if(Stage=="updating-system"){Stage="committed";Mode="system";}
                 }
-                return Task.FromResult(J(new{device_id="device",mode=Mode,agent_version="1.3.0",bootstrapped=true,job=(object?)null,boot_maintenance=new{task=TaskRecord()}}));
+                return Task.FromResult(J(new{device_id="device",mode=Mode,agent_version="1.2.1",bootstrapped=true,job=(object?)null,boot_maintenance=new{task=TaskRecord()}}));
             }
             if(command=="boot" && arguments[0]=="enter"){EnterCount++;Mode="rescue";return Task.FromResult(J(new{device_id="device"}));}
             if(command=="boot" && arguments[0]=="apply")
@@ -85,7 +85,7 @@ public static class FirmwareChecks
             throw new InvalidOperationException(command);
         }
         public Task<JsonElement> StagePackage(string package,string? release,string target,string requestId,Action<string> log,CancellationToken token)
-        {Pushes++;return Task.FromResult(J(new{device_id="device",complete=true,kind="firmware-update",release="firmware-1.3.0",firmware_bundle="/cache/bundle",firmware_sha256=Hash}));}
+        {Pushes++;return Task.FromResult(J(new{device_id="device",complete=true,kind="firmware-update",release="firmware-1.2.1",firmware_bundle="/cache/bundle",firmware_sha256=Hash}));}
         public Task<string> ExportFirmwareBackup(JsonElement task,Action<string> log,CancellationToken token)
         {if(FailExport)throw new IOException("Export interrupted");Exports++;return Task.FromResult("private/"+Protocol.Text(task,"task_id"));}
         public Task<JsonElement> Maintenance(CancellationToken token){MaintenanceQueries++;return Task.FromResult(J(new{device_id="device",maintenance=(object?)null}));}

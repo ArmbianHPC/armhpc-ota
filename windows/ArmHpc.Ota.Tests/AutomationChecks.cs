@@ -35,11 +35,11 @@ public static class AutomationChecks
         {
             UpgradeOptions Options()=>new("http://192.168.100.192:28780/ota-index.json","r13",AllowHttp:true,Bundle:bundle,MinimumAgent:"1.0.0");
             var latestOptions=new UpgradeOptions(Options().Source,"r13",AllowHttp:true,Bundle:bundle);
-            var latestConnection=new FakeUpgrade{Version="1.2.0",InstalledVersion="1.3.0"};
+            var latestConnection=new FakeUpgrade{Version="1.2.0",InstalledVersion="1.2.1"};
             var latestTask=AutomaticTask.Create("device",latestOptions);
             await AutomaticUpgrade.Run(latestTask,latestConnection,_=>{},_=>{},delay:_=>Task.CompletedTask,maintenancePolls:5,jobPolls:5);
-            check(latestTask.Options.MinimumAgent=="1.3.0" && latestConnection.Installs==1 && latestConnection.Version=="1.3.0",
-                  "new controller tasks maintain the previous agent before a 1.3.0 upgrade");
+            check(latestTask.Options.MinimumAgent=="1.2.1" && latestConnection.Installs==1 && latestConnection.Version=="1.2.1",
+                  "new controller tasks maintain the previous agent before a 1.2.1 upgrade");
             refused(()=>AutomaticTask.Create("device",Options() with {AllowHttp=false}),"automation refuses HTTP without explicit consent");
             refused(()=>AutomaticTask.Create("device",Options() with {Source="http://example.com/ota-index.json"}),"automation refuses HTTP DNS outside the registered literal address");
             refused(()=>AutomaticTask.Create("device",Options() with {Source="http://8.8.8.8/index.json"}),"automation refuses public HTTP before maintenance");
@@ -48,7 +48,7 @@ public static class AutomationChecks
             var result=await AutomaticUpgrade.Run(current,old,t=>saved=t,_=>{},delay:_=>Task.CompletedTask,maintenancePolls:5,jobPolls:8);
             check(result.Stage=="succeeded" && old.Installs==1 && old.Applies==1,"r12 tool maintenance and full upgrade survive lost replies without duplicate jobs");
             check(old.MaintenanceId==current.MaintenanceId && old.JobId==current.JobId && saved?.Release=="r13","automation persists and binds both device request IDs and selected release");
-            var toolsOnly=new FakeUpgrade{Version="0.2.0",InstalledVersion="1.3.0"};
+            var toolsOnly=new FakeUpgrade{Version="0.2.0",InstalledVersion="1.2.1"};
             result=await AutomaticUpgrade.Run(AutomaticTask.Create("device",new UpgradeOptions("",Bundle:bundle,ToolsOnly:true)),toolsOnly,_=>{},_=>{},delay:_=>Task.CompletedTask,maintenancePolls:5);
             check(result.Stage=="succeeded" && toolsOnly.Installs==1 && toolsOnly.Sources==0 && toolsOnly.Applies==0,"tool-only automation maintains all runtimes without submitting a system upgrade");
             var parserLegacy=new FakeUpgrade{Version="0.3.2"};

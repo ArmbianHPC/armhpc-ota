@@ -2,11 +2,11 @@
 
 [English](README.md)
 
-ARMHPC OTA **1.2.0** 是面向 ARM Linux 系统的通用升级与设备管理平台，包含共享设备端引擎、Windows GUI 和 Windows／Linux 上位机 CLI。
+ARMHPC OTA **1.2.1** 是面向 ARM Linux 系统的通用升级与设备管理平台，包含共享设备端引擎、Windows GUI 和 Windows／Linux 上位机 CLI。
 
 升级流程与板卡的存储、引导接入分开维护。WXY OEC Turbo（OECT）是首个接入设备，新增设备使用各自的板卡配置及兼容固件包。
 
-本版增加无登录 DNS/mDNS 主机名发现、MAC 读取、本地主机删除及管理／诊断分组，并改进维护接入与源码构建一致性。
+本版增加签名配套内核与 BOOT 固件升级，完善恢复备份、持久任务重连和设备维护资源。
 
 ## 功能
 
@@ -63,7 +63,7 @@ armhpc-rescue ota recover --release current --target system --yes --json
 - [自动升级与重连](docs/AUTOMATIC-UPGRADE.md)
 - [签名与发行](docs/RELEASES.zh-CN.md)
 - [软件构建](docs/BUILD.md)
-- [v1.2.0 更新说明](docs/releases/v1.2.0.zh-CN.md)
+- [v1.2.0 更新说明](docs/releases/v1.2.1.zh-CN.md)
 - [已知问题](docs/KNOWN-ISSUES.md)
 
 ## 许可证

@@ -3,7 +3,7 @@
 
 [简体中文](FIRMWARE-UPDATES.zh-CN.md)
 
-Version 1.3.0 recognizes a signed firmware transport containing `firmware/boot-update.tar.xz`. Select **all** when importing this package. The nested signed purpose is `firmware-update` and its minimum device agent is 1.3.0. A standard same-BOOT system/Rescue transport keeps its existing behavior.
+Version 1.2.1 recognizes a signed firmware transport containing `firmware/boot-update.tar.xz`. Select **all** when importing this package. The nested signed purpose is `firmware-update` and its minimum device agent is 1.2.1. A standard same-BOOT system/Rescue transport keeps its existing behavior.
 
 Install the supplied maintenance package before a firmware update. The controller checks the persistent device ID, signature, board, layout, BOOT ABI and payload pairing. It enters confirmed Rescue, prepares a private recovery backup and downloads every backup file with size/SHA256 verification before switching BOOT. Keep the displayed local backup directory until the node has passed acceptance.
 
@@ -19,4 +19,4 @@ Apply/rollback is restricted by the device's current environment, original task 
 
 The controller shows management network, kernel capabilities and state recovery when supplied by the device. Older agents display **not provided** for optional fields. New authentication, firewall, resource and swap changes require an explicitly supplied `--yes`; profile/import previews do not apply them. Interactive password change remains an interactive command.
 
-For node configuration, local verification and physical acceptance, use the matching framework's `docs/BASE-IMAGE-1.3.0.md` and `tools/verify-node-1.3.py`. Source commits, final kernel configuration/module receipts, license materials and SHA256 lists identify the delivered files. Keep credentials, device backups and signing keys private.
+For node configuration, local verification and physical acceptance, use the matching framework's `docs/BASE-IMAGE-1.2.1.md` and `tools/verify-node-1.2.1.py`. Source commits, final kernel configuration/module receipts, license materials and SHA256 lists identify the delivered files. Keep credentials, device backups and signing keys private.

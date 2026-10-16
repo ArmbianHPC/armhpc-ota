@@ -101,8 +101,8 @@ def validate_bundle(engine, bundle):
         require(b['id']!='wxy-oesp-v22' or version_tuple(minimum)>=(1,1,1),'boot_agent','OESP BOOT maintenance requires agent 1.1.1 or later')
         purpose=m.get('purpose','watchdog-diagnostic')
         require(purpose in ('watchdog-diagnostic','firmware-update'),'boot_purpose','Unknown signed BOOT purpose')
-        require(purpose!='firmware-update' or version_tuple(minimum)>=(1,3,0),
-                'boot_agent','Normal firmware updates require agent 1.3.0 or later')
+        require(purpose!='firmware-update' or version_tuple(minimum)>=(1,2,1),
+                'boot_agent','Normal firmware updates require agent 1.2.1 or later')
         identifier(m['release'])
         require(isinstance(m['sequence'],int) and m['sequence']>engine.store.control().get('highest_boot_sequence',0),
                 'boot_sequence','BOOT sequence must increase')

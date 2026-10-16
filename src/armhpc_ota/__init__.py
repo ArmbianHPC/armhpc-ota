@@ -1,4 +1,4 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """One upgrade engine for the normal OS, Rescue and the Windows SSH client."""
-__version__ = "1.3.0"
+__version__ = "1.2.1"
 PROTOCOL = 1

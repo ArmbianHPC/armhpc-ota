@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 import unittest
+import io
+import json
+import tarfile
 import uuid
 from unittest import mock
 from types import SimpleNamespace
@@ -7,6 +10,7 @@ from pathlib import Path
 from armhpc_ota import boot_maintenance as boot
 from armhpc_ota.errors import OTAError
 from armhpc_ota.io import read_json
+from armhpc_ota.metadata import sign
 from support import boot_fixture
 import test_oesp_boot_maintenance as fixtures
 
@@ -49,8 +53,26 @@ class FirmwareUpdate(unittest.TestCase):
         with self.assertRaises(OTAError) as error:boot.apply(self.e,request_id=task_id,commit=True)
         self.assertEqual(error.exception.code,'boot_purpose')
 
+    def test_firmware_update_rejects_agent_older_than_1_2_1(self):
+        bundle = self.paired_bundle('firmware-update')
+        with tarfile.open(bundle, 'r:xz') as archive:
+            files = {item.name: archive.extractfile(item).read() for item in archive}
+        envelope = json.loads(files['manifest.json'])
+        self.assertEqual(envelope['payload']['minimum_agent'], '1.2.1')
+        envelope['payload']['minimum_agent'] = '1.2.0'
+        files['manifest.json'] = sign(envelope['payload'], self.key, 'test')
+        changed = self.r / 'old-firmware-agent.tar.xz'
+        with tarfile.open(changed, 'w:xz') as archive:
+            for name, raw in files.items():
+                member = tarfile.TarInfo(name)
+                member.size = len(raw)
+                archive.addfile(member, io.BytesIO(raw))
+        with self.assertRaises(OTAError) as error:
+            boot.plan(self.e, changed)
+        self.assertEqual(error.exception.code, 'boot_agent')
+
     def test_semantic_minimum_agent_comparison(self):
-        self.assertLess(boot.version_tuple('1.2.10'),boot.version_tuple('1.3.0'))
+        self.assertLess(boot.version_tuple('1.2.1'),boot.version_tuple('1.2.10'))
         with self.assertRaises(OTAError):boot.version_tuple('1.3')
 
 
