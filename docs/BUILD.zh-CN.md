@@ -1,6 +1,6 @@
 # 软件构建
 
-使用两个仓库的配套、干净提交。设备代码支持 Python 3.11+；.NET SDK、运行时及发行依赖由 global.json、DEPENDENCIES.lock.json 和 NuGet 锁文件固定。
+使用两个仓库的兼容、干净提交，两个版本号可以不同，参见[独立版本与兼容性](COMPATIBILITY.zh-CN.md)。设备代码支持 Python 3.11+；.NET SDK、运行时及发行依赖由 global.json、DEPENDENCIES.lock.json 和 NuGet 锁文件固定。
 
 先安装 `requirements-test.txt`，使用 `PYTHONPATH=src python3 -m pytest tests` 运行全部 Python 回归，再运行 Windows 的 ArmHpc.Ota.Tests 和 ArmHpc.Ota.UiTests。pytest 同时收集函数测试与 unittest 用例。
 

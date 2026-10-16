@@ -44,6 +44,8 @@ def build(rescue_manifest,rootfs,kernel,dtb,initramfs,recovery_initramfs,output,
     require(purpose in ('watchdog-diagnostic','firmware-update'),'boot_purpose','Unknown BOOT purpose')
     if purpose=='firmware-update':
         payload.update(purpose=purpose,minimum_agent='1.2.1')
+    from .boot_maintenance import version_tuple
+    payload['minimum_agent']=max((payload['minimum_agent'],m['minimum_agent']),key=version_tuple)
     output=Path(output);require(not output.exists() and not output.is_symlink(),'release_exists','Published BOOT candidates cannot be overwritten')
     output.parent.mkdir(parents=True,exist_ok=True);temporary=output.with_name('.'+output.name+'.partial')
     require(not temporary.exists(),'release_partial','Resolve the old incomplete publication before signing')
