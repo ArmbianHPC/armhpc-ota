@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Package committed source, architecture helpers and signed-maintenance resources."""
-import argparse,ast,hashlib,json,os,subprocess,tarfile,zipfile
+import argparse,ast,hashlib,importlib.util,json,os,subprocess,tarfile,zipfile
 from pathlib import Path
 
 def version(project):
@@ -9,7 +9,7 @@ def version(project):
 
 def source_files(project):
     selected=('src','boot','packaging','tools','docs','tests','windows','LICENSES','.github',
-              'README.md','README.zh-CN.md','LICENSE','COPYRIGHT','VERSION','THIRD-PARTY-NOTICES.md','pyproject.toml',
+              'README.md','README.zh-CN.md','LICENSE','COPYRIGHT','VERSION','COMPATIBILITY.json','THIRD-PARTY-NOTICES.md','pyproject.toml',
               'MANIFEST.in','requirements-test.txt','LICENSE-MAP.json','REUSE.toml','global.json','DEPENDENCIES.lock.json','.gitignore','.gitattributes','CHANGELOG.md')
     for name in selected:
         base=project/name
@@ -108,7 +108,15 @@ def build(project,output,helpers=None,windows=None,framework=None):
     project=Path(project).resolve(strict=True);output=Path(output).resolve()
     if output.is_relative_to(project) or any((p/'.git').exists() for p in (output,*output.parents)):
         raise ValueError('Archives belong outside source repositories')
-    number=version(project);output.mkdir(parents=True,exist_ok=True)
+    number=version(project)
+    if number != (project/'VERSION').read_text(encoding='utf-8').strip():
+        raise ValueError('OTA runtime and repository versions differ')
+    compatibility=None
+    if framework:
+        spec=importlib.util.spec_from_file_location('runtime_compatibility',project/'tools/compatibility.py')
+        checker=importlib.util.module_from_spec(spec);spec.loader.exec_module(checker)
+        compatibility=checker.check_sources(project,framework)
+    output.mkdir(parents=True,exist_ok=True)
     epoch=int(os.environ.get('SOURCE_DATE_EPOCH','0'));files=list(source_files(project));created=[]
     refs={'armhpc-ota':provenance(project)}
     if framework:refs['armbian-hpc']=provenance(framework)
@@ -132,7 +140,7 @@ def build(project,output,helpers=None,windows=None,framework=None):
         with TemporaryDirectory(dir=output) as temp:
             inventory=Path(temp)/'framework-files.json'
             inventory.write_text(json.dumps({'protocol':1,'framework_version':Path(framework,'VERSION').read_text().strip(),
-                                             'source_commit':refs['armbian-hpc'],'files':[i for p,i in shared]},indent=2)+'\n')
+                                             'source_commit':refs['armbian-hpc'],'compatibility':compatibility,'files':[i for p,i in shared]},indent=2)+'\n')
             with tarfile.open(runtime,'w:xz',preset=6) as archive:
                 prefix='armhpc-ota-'+number+'/'
                 for path,relative in files:
@@ -157,7 +165,9 @@ def build(project,output,helpers=None,windows=None,framework=None):
                 if path.is_file() and not path.is_symlink() and '__pycache__' not in path.parts:
                     z.write(path,'ARMHPC-OTA/'+path.relative_to(windows).as_posix())
         created.append(binary)
-    report={'version':number,'source_commits':refs,'protocol':1,'system_img_included':False,
+    report={'version':number,'source_commits':refs,
+            'source_versions':compatibility['source_versions'] if compatibility else {'armhpc-ota':number},
+            'compatibility':compatibility,'protocol':1,'system_img_included':False,
             'files':[{'file':p.name,'bytes':p.stat().st_size,'sha256':digest(p)} for p in created]}
     (output/'SHA256SUMS').write_text(''.join(x['sha256']+'  '+x['file']+'\n' for x in report['files']))
     (output/'tool-release.json').write_text(json.dumps(report,indent=2)+'\n')

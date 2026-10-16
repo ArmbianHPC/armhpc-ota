@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "armhpc-ota"
-version = "1.2.1"
+version = "1.2.2"
 description = "ARMHPC signed, offline-root dual-system OTA engine"
 requires-python = ">=3.11"
 license = {text = "GPL-3.0-only"}

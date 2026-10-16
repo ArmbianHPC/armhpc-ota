@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "component": "armhpc-ota",
+  "source_interface": 1,
+  "ota_protocol": 1,
+  "minimum_companion_version": "1.2.1"
+}

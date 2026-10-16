@@ -10,7 +10,7 @@ static string Password()
     Console.Error.WriteLine();return value.ToString();
 }
 const string Help="""
-ARMHPC OTA controller 1.2.1 — SSH / USB serial automation
+ARMHPC OTA controller 1.2.2 — SSH / USB serial automation
 
   ARMHPC-OTA-CLI command --ssh <IPv4> [--ssh <IPv4> ...] --command "armhpc ..."
       [--devices-csv <inventory.csv> | --all-managed] [--hostname <name>] [--exact-hostname]
@@ -41,7 +41,7 @@ Watchdog/BOOT commands use "command"; destructive diagnostics require one device
 Reboot / connection loss is observed by persistent device, maintenance and OTA job IDs.
 """;
 if(args.Length==0 || args.Contains("--help") || args.Contains("-h")){Console.WriteLine(Help);return 0;}
-if(args[0]=="--version"){Console.WriteLine("1.2.1");return 0;}
+if(args[0]=="--version"){Console.WriteLine("1.2.2");return 0;}
 if(args[0]=="command")return await ArmHpc.Ota.Cli.CommandCli.Run(args.Skip(1).ToArray());
 var flags=new HashSet<string>{"--yes","--json","--remember","--allow-http","--ignore-fingerprint","--prepare"};
 var valued=new HashSet<string>{"--ssh","--serial","--port","--baud-rate","--source","--release","--target","--bundle","--ca","--scan-range","--serial-reconnect","--minimum-agent","--username","--password-env","--key","--passphrase-env","--hostkey-system","--hostkey-rescue","--device-id","--task","--package","--output-directory","--usb-tool-directory","--export"};

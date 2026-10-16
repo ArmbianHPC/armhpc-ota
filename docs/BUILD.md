@@ -2,7 +2,7 @@
 
 [简体中文](BUILD.zh-CN.md)
 
-Use clean matching commits of both repositories. Device code supports Python 3.11+. Windows uses the SDK in `global.json`; `DEPENDENCIES.lock.json` and NuGet lock files pin release dependencies.
+Use clean, compatible commits of both repositories; their release versions may differ. See [independent versions](COMPATIBILITY.md). Device code supports Python 3.11+. Windows uses the SDK in `global.json`; `DEPENDENCIES.lock.json` and NuGet lock files pin release dependencies.
 
 ```sh
 python3 -m pip install -r requirements-test.txt

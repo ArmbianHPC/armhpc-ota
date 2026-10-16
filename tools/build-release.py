@@ -36,8 +36,9 @@ def build(args):
     frame = args.framework_source.resolve(strict=True)
     refs = {'armhpc-ota': commit(repo), 'armbian-hpc': commit(frame)}
     version = (repo / 'VERSION').read_text(encoding='utf-8').strip()
-    if (frame / 'VERSION').read_text(encoding='utf-8').strip() != version:
-        raise ValueError('Framework and OTA software versions differ')
+    compatibility = load(repo / 'tools/compatibility.py', 'release_compatibility').check_sources(repo, frame)
+    source_versions = compatibility['source_versions']
+    framework_version = source_versions['armbian-hpc']
     work, output = args.work.resolve(), args.output.resolve()
     for p in (work, output):
         if any((q / '.git').exists() for q in (p, *p.parents)):
@@ -82,15 +83,16 @@ def build(args):
     source_directory = portable / 'source'
     source_directory.mkdir()
     shutil.copy2(output / ('armhpc-ota-' + version + '-source.tar.xz'), source_directory)
-    framework_archive = source_directory / ('armbian-hpc-' + version + '-source.tar.xz')
+    framework_archive = source_directory / ('armbian-hpc-' + framework_version + '-source.tar.xz')
     with (work / 'framework-source.tar').open('xb') as stream:
         subprocess.run(['git', '-C', str(frame), 'archive', '--format=tar',
-                        '--prefix=armbian-hpc-' + version + '/', refs['armbian-hpc']],
+                        '--prefix=armbian-hpc-' + framework_version + '/', refs['armbian-hpc']],
                        stdout=stream, check=True)
     with (work / 'framework-source.tar').open('rb') as source, lzma.open(framework_archive, 'xb', preset=6) as destination:
         shutil.copyfileobj(source, destination)
     (portable / 'BUILD-INFO.json').write_text(json.dumps({
-        'version': version, 'source_commits': refs, 'sdk': sdk,
+        'version': version, 'source_versions': source_versions, 'source_commits': refs,
+        'compatibility': compatibility, 'sdk': sdk,
         'dotnet_runtime': lock['dotnet_runtime'],
         'sources': [{'file': p.name, 'sha256': digest(p)} for p in sorted(source_directory.iterdir())]
     }, indent=2) + '\n', encoding='utf-8')
@@ -105,7 +107,8 @@ def build(args):
     shutil.copy2(portable / 'DEPENDENCIES.json', output / 'DEPENDENCIES.json')
     shutil.make_archive(str(output / ('armhpc-' + version + '-licenses')), 'zip', portable, 'LICENSES')
     artifacts = [p for p in output.iterdir() if p.is_file() and p.name not in ('SHA256SUMS', 'tool-release.json')]
-    report = {'version': version, 'protocol': 1, 'source_commits': refs, 'sdk': sdk,
+    report = {'version': version, 'protocol': 1, 'source_versions': source_versions,
+              'source_commits': refs, 'compatibility': compatibility, 'sdk': sdk,
               'dotnet_runtime': lock['dotnet_runtime'], 'hardware_verified': False, 'system_image_built': False,
               'files': [{'file': p.name, 'size': p.stat().st_size, 'sha256': digest(p)} for p in sorted(artifacts)]}
     (output / 'tool-release.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')

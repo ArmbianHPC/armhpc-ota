@@ -71,6 +71,22 @@ class FirmwareUpdate(unittest.TestCase):
             boot.plan(self.e, changed)
         self.assertEqual(error.exception.code, 'boot_agent')
 
+    def test_boot_wrapper_preserves_higher_signed_agent_requirement(self):
+        from armhpc_ota.boot_publish import build
+        envelope = json.loads(self.manifest_path.read_bytes())['payload']
+        envelope['minimum_agent'] = '1.2.10'
+        self.manifest_path.write_bytes(sign(envelope, self.key, 'test'))
+        bundle = self.r / 'future-agent.tar.xz'
+        build(self.manifest_path,self.files['rootfs'],self.files['kernel'],self.files['dtb'],
+              self.files['initramfs'],self.recovery,bundle,self.key,'test',self.c.trust,1,
+              self.c.state/self.old['kernel']['path'],self.c.state/self.old['dtb']['path'],purpose='firmware-update')
+        with tarfile.open(bundle) as archive:
+            outer = json.load(archive.extractfile('manifest.json'))['payload']
+        self.assertEqual('1.2.10', outer['minimum_agent'])
+        with self.assertRaises(OTAError) as caught:
+            boot.plan(self.e, bundle)
+        self.assertEqual('boot_agent', caught.exception.code)
+
     def test_semantic_minimum_agent_comparison(self):
         self.assertLess(boot.version_tuple('1.2.1'),boot.version_tuple('1.2.10'))
         with self.assertRaises(OTAError):boot.version_tuple('1.3')

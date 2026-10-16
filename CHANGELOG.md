@@ -1,3 +1,8 @@
+# v1.2.2
+
+- Allow independent framework and OTA versions with explicit compatibility requirements and separate source provenance.
+- Preserve a signed firmware package's minimum agent requirement in its BOOT wrapper.
+
 # v1.2.1
 
 - Add signed paired kernel/BOOT firmware updates with private recovery export and persistent controller reconnection.
