@@ -27,6 +27,28 @@ public static class Scanner
         return result;
     }
 
+    public static async Task<bool> HasSshBanner(Endpoint endpoint, CancellationToken cancellation = default)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation); timeout.CancelAfter(1200);
+        try
+        {
+            using var client = new TcpClient(AddressFamily.InterNetwork);
+            await client.ConnectAsync(endpoint.Address, endpoint.Port, timeout.Token).ConfigureAwait(false);
+            byte[] banner = new byte[256];
+            int received = 0;
+            while (received < 8)
+            {
+                int count = await client.GetStream().ReadAsync(banner.AsMemory(received), timeout.Token).ConfigureAwait(false);
+                if (count == 0) return false;
+                received += count;
+            }
+            return Encoding.ASCII.GetString(banner, 0, received).StartsWith("SSH-2.0-", StringComparison.Ordinal);
+        }
+        catch (Exception error) when (error is SocketException or OperationCanceledException or IOException)
+        { cancellation.ThrowIfCancellationRequested(); return false; }
+    }
+
     public static async Task<IReadOnlyList<Endpoint>> Scan(string cidr, int port, Action<int, int>? progress = null, CancellationToken cancellation = default)
     {
         if (port is < 1 or > 65535) throw new ArgumentException("SSH 端口范围无效。");
@@ -37,14 +59,8 @@ public static class Scanner
         {
             try
             {
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(1200);
-                using var client = new TcpClient(AddressFamily.InterNetwork);
-                await client.ConnectAsync(address, port, timeout.Token);
-                byte[] banner = new byte[256];
-                int count = await client.GetStream().ReadAsync(banner, timeout.Token);
-                if (Encoding.ASCII.GetString(banner, 0, count).StartsWith("SSH-2.0-", StringComparison.Ordinal)) found.Add(new(address, port));
+                if (await HasSshBanner(new(address, port), token).ConfigureAwait(false)) found.Add(new(address, port));
             }
-            catch (Exception error) when (error is SocketException or OperationCanceledException or IOException) { }
             finally { progress?.Invoke(Interlocked.Increment(ref complete), addresses.Count); }
         });
         return found.OrderBy(item => item.Address, StringComparer.Ordinal).ToArray();

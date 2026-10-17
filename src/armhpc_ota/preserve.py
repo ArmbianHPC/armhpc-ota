@@ -20,6 +20,7 @@ POLICY = (
     'etc/armhpc/management-network.json', 'var/lib/armhpc/network-config',
     'etc/armhpc/data-identity.json',
     'etc/systemd/network', 'etc/NetworkManager/system-connections', 'etc/netplan',
+    'etc/resolv.conf', 'etc/systemd/resolved.conf', 'etc/systemd/resolved.conf.d',
     'etc/network/interfaces', 'etc/network/interfaces.d', 'etc/rancher/k3s',
     'etc/systemd/system/k3s.service', 'etc/systemd/system/k3s-agent.service',
     'etc/systemd/system/k3s.service.env', 'etc/systemd/system/k3s-agent.service.env',
@@ -269,12 +270,44 @@ def snapshot(root, destination, baseline_packages, simulate=False, extra=()):
     return inventory
 
 
+NETWORK_DIRECTORIES = (
+    'etc/systemd/network', 'etc/NetworkManager/system-connections',
+    'etc/netplan', 'etc/network/interfaces.d', 'etc/systemd/resolved.conf.d',
+)
+
+
+def restore_network_directories(source, target):
+    """Restore complete saved network directories so new DHCP defaults cannot win."""
+    for relative in NETWORK_DIRECTORIES:
+        try:
+            member = source.getmember(relative)
+        except KeyError:
+            continue
+        if not member.isdir():
+            continue
+        path = target.joinpath(*relative.split('/'))
+        require(path.parent.resolve().is_relative_to(target.resolve()),
+                'restore_path', 'Network directory parent escapes the target')
+        if path.is_symlink():
+            path.unlink()
+        elif path.is_dir():
+            require(not path.is_mount(), 'restore_mount', 'Cannot replace a mounted network directory')
+            for directory, _, _ in os.walk(path, followlinks=False):
+                require(not Path(directory).is_mount(), 'restore_mount',
+                        'Network directory contains a mounted filesystem')
+            shutil.rmtree(path)
+        elif path.exists():
+            require(path.is_file(), 'restore_special', 'Unsafe network directory in target')
+            path.unlink()
+
+
 def restore(snapshot_dir, target):
     snapshot_dir, target = Path(snapshot_dir), Path(target)
     inventory = validate_snapshot(snapshot_dir)
     archive = snapshot_dir / 'selected.tar'
     validate_accounts(inventory['accounts'], target)
     with tarfile.open(archive) as source:
+        restore_network_directories(source, target)
         for member in source:
             path = target.joinpath(*member.name.split('/'))
             require(not member.name.startswith('/') and all(part not in ('', '.', '..') for part in member.name.split('/')),

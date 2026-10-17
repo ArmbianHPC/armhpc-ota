@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 from pathlib import Path
 import shutil
-from . import __version__
+from . import __version__, __display_version__, __revision__
 from .backend import Backend
 from .device import discover, layout, ensure_unmounted, check_gate
 from .download import Transport, required_artifacts
@@ -35,7 +35,7 @@ class Engine:
             gate = check_gate(self.config, device, control)
         except OTAError as error:
             gate = {'passed': False, 'reason': str(error), 'code': error.code}
-        return {'protocol': 1, 'agent_version': __version__, 'device_id': device['device_id'],
+        return {'protocol': 1, 'agent_version': __version__, 'agent_display_version': __display_version__, 'agent_revision': __revision__, 'device_id': device['device_id'],
                 'board': device['board'], 'architecture': device['architecture'], 'mode': device['mode'],
                 'kernel': device['kernel'], 'bootstrapped': control is not None, 'hardware_gate': gate,
                 'write_authorized': gate.get('write_allowed', gate.get('passed', False)),
@@ -45,7 +45,7 @@ class Engine:
                 'capabilities': {'idempotent_apply': True, 'offline_baselines': True,
                                  'interrupted_root_recovery': True, 'rescue_ab': True, 'push_import': True, 'local_only_apply': True,
                                  'serial_push': True, 'watchdog_diagnostics': True, 'boot_maintenance': True,
-                                 'normal_firmware_update': True,
+                                 'normal_firmware_update': True, 'storage_management': True, 'firmware_system_resume': True, 'multiple_boot_recovery_baselines': True,
                                  'direct_squashfs': self.config.board().get('rescue_fstype') == 'squashfs'},
                 'baselines': self._baseline_status(),
                 'versions': {name: control.get('confirmed', {}).get(name, {}).get('boot', {}).get('release') if control else None for name in ('system', 'rescue')},
@@ -627,4 +627,4 @@ def public_job(job):
         return None
     return {key: value for key, value in job.items() if key in (
         'job_id', 'created', 'updated', 'stage', 'kind', 'release', 'target', 'device_id',
-        'write_started', 'checkpoints', 'progress', 'events', 'error', 'retry_count', 'clock')}
+        'write_started', 'checkpoints', 'progress', 'events', 'error', 'retry_count', 'clock', 'resume_count', 'trial_failures')}

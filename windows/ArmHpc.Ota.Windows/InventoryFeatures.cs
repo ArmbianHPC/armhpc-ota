@@ -18,6 +18,7 @@ public partial class MainWindow
             if(!sameConnection)
             {
                 sessionCredentials.Remove(device.DeviceId+"/"+device.Transport);
+                if(device.Transport=="ssh")foreach(string mode in new[]{"system","rescue"})sessionCredentials.Remove(LoginProfiles.SessionKey(device.DeviceId,"ssh",mode));
                 vault.ForgetConnection(device,!devices.Any(d=>d.DeviceId==device.DeviceId));
             }
             if(!devices.Any(d=>d.DeviceId==device.DeviceId))latestStatus.Remove(device.DeviceId);

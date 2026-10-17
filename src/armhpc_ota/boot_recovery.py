@@ -72,9 +72,9 @@ def restore(engine, request_id, execute=False):
         require(image.stat().st_size==boot['size']==item['bytes'] and sha256(image)==item['sha256'],
                 'boot_backup_hash','BOOT recovery image size or SHA256 differs')
         signed=verify((c.cache/'boot-maintenance'/task['bundle_sha256']/'manifest.json').read_bytes(),c.trust)
-        require(signed['requires']['kernel_sha256']==task['original_boot']['kernel']['sha256'] and
-                signed['requires']['dtb_sha256']==task['original_boot']['dtb']['sha256'] and
-                signed['files']['recovery-initramfs']['sha256']==task['recovery']['files']['initramfs']['sha256'],
+        recovery_name=bm.select_recovery_initramfs(signed,task['original_boot'])
+        require(task.get('recovery_initramfs','recovery-initramfs')==recovery_name and
+                signed['files'][recovery_name]['sha256']==task['recovery']['files']['initramfs']['sha256'],
                 'boot_pair','Recovery image differs from the signed original kernel/DTB pair')
         preview={'task_id':request_id,'device_id':d['device_id'],'boot':task['boot'],
                  'image_sha256':item['sha256'],'bytes':item['bytes'],'original_slot':task['original_slot'],

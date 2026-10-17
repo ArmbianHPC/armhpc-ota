@@ -126,6 +126,12 @@ def inspect_runtime(runtime):
                     isinstance(node.value,ast.Constant) and isinstance(node.value.value,str)]
             require(len(values)==1 and re.fullmatch(r'\d+\.\d+\.\d+',values[0]),
                     'tools_version', '运行时缺少有效且唯一的 __version__ 字符串。')
+            revisions=[node.value.value for node in tree.body if isinstance(node,ast.Assign) and
+                       any(isinstance(t,ast.Name) and t.id=='__revision__' for t in node.targets) and
+                       isinstance(node.value,ast.Constant) and isinstance(node.value.value,str)]
+            require(len(revisions)<=1 and (not revisions or re.fullmatch(r'r[1-9][0-9]*',revisions[0])),
+                    'tools_version','Invalid runtime build revision')
+            build_metadata={'revision':revisions[0],'display_version':values[0]+'-'+revisions[0]} if revisions else {}
             prefix=versions[0][:-len(suffix)]
             required=['src/armhpc_ota/maintenance.py','packaging/fallback-health.py',
                       'boot/boot-entry.py','boot/squashfs-boot.py',
@@ -156,7 +162,7 @@ def inspect_runtime(runtime):
                 require(other.get('id')=='wxy-oesp-v22' and other.get('layout')=='oesp-mbr-squashfs-ab-v1',
                         'tools_profile','Unexpected OESP adapter')
                 adapters.append(other)
-            return {'version':values[0],'anchor_abi':adapter['anchor_abi'],
+            return {'version':values[0],**build_metadata,'anchor_abi':adapter['anchor_abi'],
                     'boards':sorted({a.get('id','wxy-oect-original') for a in adapters}),'layouts':sorted({a.get('layout','oect-squashfs-ab-v2') for a in adapters}),
                     'anchor_abis':sorted({a['anchor_abi'] for a in adapters})}
     except tarfile.TarError as error:
@@ -175,8 +181,9 @@ def tools_bundle(runtime, output, key, key_id, version=None):
        'boards':metadata['boards'],'architectures':['arm64','armhf'],
        'layouts':metadata['layouts'],'anchor_abis':metadata['anchor_abis'],
        'artifact':{'size':runtime.stat().st_size,'sha256':sha256(runtime)}}
+    if metadata.get('revision'):m.update(revision=metadata['revision'],display_version=metadata['display_version'])
     raw=sign(m,key,key_id)
-    dest=output/'tools'/version/'maintenance.tar.xz'
+    dest=output/'tools'/metadata.get('display_version',version)/'maintenance.tar.xz'
     dest.parent.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(dir=output) as temporary:
         temp=Path(temporary); atomic_bytes(temp/'manifest.json',raw)

@@ -36,6 +36,10 @@ the persistent device ID and trusted SSH identity. Existing protocol-1 status
 fields are retained. The host CLI status response adds `mac_address`,
 `network_interfaces` and `hostname` when these are available.
 
+## Reconnect after an address change
+
+The controller remembers authenticated System/Rescue addresses and physical MACs. After a restart it can locate a new DHCP address, then checks the pinned SSH identity and original device ID. See [network reconnection and retained settings](NETWORK-RECONNECT.md) for scope limits, static-network preservation and routed networks.
+
 ## Select, filter and remove
 
 Use checkboxes, Ctrl/Shift row selection, select-visible, invert or clear-selection.
@@ -72,3 +76,12 @@ when the user elects to continue the queue; commands are not automatically resen
 Default and per-device credentials use local encrypted storage on Windows and are
 not exported to CSV. Interactive wizards use the SSH/serial terminal. Do not open
 the same COM port simultaneously in multiple terminal programs.
+
+## Paired system trial recovery
+
+- Use the selected K3s DATA directory, configuration and CRI configuration for node health probes.
+- Keep CRI/API readiness mandatory and return bounded, structured errors for unavailable or timed-out commands.
+- Allow signed userland maintenance from the confirmed candidate Rescue when its paired system trial was fully written and failed health confirmation.
+- Resume that exact paired trial with `armhpc-rescue ota boot resume-system --request-id <BOOT task ID> --yes --json`. Retain the original IDs, configuration snapshot, DATA and failure history; verify resources and retry startup without writing rootfs again.
+
+Install the matching signed maintenance package before resuming. Read the original BOOT and system task status first. Other active BOOT stages, unfinished writes, changed disks/packages and mismatched tasks remain blocked. A failed probe is not accepted as ready.

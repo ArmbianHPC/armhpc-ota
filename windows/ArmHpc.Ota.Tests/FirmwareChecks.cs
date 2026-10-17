@@ -29,6 +29,18 @@ public static class FirmwareChecks
             result=await AutomaticUpgrade.Run(task with{Release="firmware-1.2.1",Kind="firmware-update",FirmwareBundle="/cache/bundle",FirmwareSha256=FirmwareConnection.Hash},resume,_=>{},_=>{},delay:_=>Task.CompletedTask,jobPolls:5);
             check(result.Stage=="succeeded" && resume.Pushes==0 && resume.Exports==0 && resume.MaintenanceQueries==0,
                   "a resumed firmware task only observes its original device request");
+            foreach(var incomplete in new[]{"system","rescue","missing"})
+            {
+                var mismatch=new FirmwareConnection{Id=task.JobId,Stage="committed",Mode="system",
+                    SystemRelease=incomplete=="system"?"old-system":"firmware-1.2.1",
+                    RescueRelease=incomplete=="rescue"?"old-rescue":"firmware-1.2.1",
+                    OmitVersions=incomplete=="missing"};
+                AutomaticTask? held=null;bool rejected=false;
+                try{await AutomaticUpgrade.Run(task with{Release="firmware-1.2.1",Kind="firmware-update",FirmwareBundle="/cache/bundle",FirmwareSha256=FirmwareConnection.Hash},mismatch,t=>held=t,_=>{},delay:_=>Task.CompletedTask,jobPolls:2);}
+                catch(InvalidOperationException){rejected=true;}
+                check(rejected && held?.Stage=="paused" && !held.Terminal && mismatch.FlashCount==0,
+                      "a committed BOOT task cannot report full success with unconfirmed "+incomplete+" versions");
+            }
             var failedExport=new FirmwareConnection{FailExport=true};bool exportFailed=false;
             try{await AutomaticUpgrade.Run(AutomaticTask.Create("device",new("",Package:package)),failedExport,_=>{},_=>{},delay:_=>Task.CompletedTask,jobPolls:8);}
             catch(IOException){exportFailed=true;}
@@ -53,7 +65,8 @@ public static class FirmwareChecks
     {
         public const string Hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         public string? Id,Stage;public string Mode="system";public int EnterCount,Exports,FlashCount,Pushes,MaintenanceQueries;
-        public bool LoseSwitchReply,FailExport,Frozen;
+        public bool LoseSwitchReply,FailExport,Frozen,OmitVersions;
+        public string SystemRelease="firmware-1.2.1",RescueRelease="firmware-1.2.1";
         object? TaskRecord()=>Id is null?null:new{task_id=Id,device_id="device",release="firmware-1.2.1",purpose="firmware-update",
             bundle_sha256=Hash,stage=Stage,backups=new Dictionary<string,object>{{"BOOT-rescue.img.xz",new{sha256=Hash}}}};
         public Task<JsonElement> Command(string command,IReadOnlyList<string> arguments,bool yes,CancellationToken token)
@@ -65,7 +78,7 @@ public static class FirmwareChecks
                     if(Stage=="awaiting-firmware")Stage="updating-system";
                     else if(Stage=="updating-system"){Stage="committed";Mode="system";}
                 }
-                return Task.FromResult(J(new{device_id="device",mode=Mode,agent_version="1.2.1",bootstrapped=true,job=(object?)null,boot_maintenance=new{task=TaskRecord()}}));
+                return Task.FromResult(J(new{device_id="device",mode=Mode,agent_version="1.2.1",bootstrapped=true,job=(object?)null,boot_maintenance=new{task=TaskRecord()},versions=OmitVersions?null:new{system=SystemRelease,rescue=RescueRelease}}));
             }
             if(command=="boot" && arguments[0]=="enter"){EnterCount++;Mode="rescue";return Task.FromResult(J(new{device_id="device"}));}
             if(command=="boot" && arguments[0]=="apply")

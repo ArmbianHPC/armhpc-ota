@@ -37,6 +37,11 @@ def build(args):
     refs = {'armhpc-ota': commit(repo), 'armbian-hpc': commit(frame)}
     version = (repo / 'VERSION').read_text(encoding='utf-8').strip()
     compatibility = load(repo / 'tools/compatibility.py', 'release_compatibility').check_sources(repo, frame)
+    import ast
+    tree=ast.parse((repo/'src/armhpc_ota/__init__.py').read_text(encoding='utf-8'))
+    revision=next((n.value.value for n in tree.body if isinstance(n,ast.Assign) and
+                  any(isinstance(t,ast.Name) and t.id=='__revision__' for t in n.targets) and isinstance(n.value,ast.Constant)),None)
+    display_version=version+('-'+revision if revision else '')
     source_versions = compatibility['source_versions']
     framework_version = source_versions['armbian-hpc']
     work, output = args.work.resolve(), args.output.resolve()
@@ -69,7 +74,7 @@ def build(args):
                 subprocess.run(command, cwd=repo, stdout=log, stderr=subprocess.STDOUT, check=True)
         print('Published ' + name, flush=True)
     installed = subprocess.check_output([str(portable / 'ARMHPC-OTA-CLI.exe'), '--version'], text=True).strip()
-    if installed != version:
+    if installed != display_version:
         raise ValueError('Portable CLI version differs: ' + installed)
     load(repo / 'tools/collect-licenses.py', 'license_collector').collect(repo, portable, cache)
     sys.path.insert(0, str(repo / 'src'))
@@ -91,7 +96,7 @@ def build(args):
     with (work / 'framework-source.tar').open('rb') as source, lzma.open(framework_archive, 'xb', preset=6) as destination:
         shutil.copyfileobj(source, destination)
     (portable / 'BUILD-INFO.json').write_text(json.dumps({
-        'version': version, 'source_versions': source_versions, 'source_commits': refs,
+        'version': version, 'display_version': display_version, 'source_versions': source_versions, 'source_commits': refs,
         'compatibility': compatibility, 'sdk': sdk,
         'dotnet_runtime': lock['dotnet_runtime'],
         'sources': [{'file': p.name, 'sha256': digest(p)} for p in sorted(source_directory.iterdir())]

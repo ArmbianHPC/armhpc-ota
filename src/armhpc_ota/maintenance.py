@@ -32,7 +32,7 @@ def require_complete(config):
 def status(config):
     r = record(config)
     return {'agent_version': __version__, 'consistent': not r or r['stage'] in DONE,
-            'maintenance': {k: r[k] for k in ('task_id', 'version', 'stage', 'completed', 'updated', 'error') if k in r} if r else None}
+            'maintenance': {k: r[k] for k in ('task_id', 'version', 'stage', 'completed', 'updated', 'error', 'bundle_sha256', 'runtime_sha256', 'display_version', 'revision') if k in r} if r else None}
 
 
 def safe_extract(archive, destination):
@@ -140,12 +140,15 @@ def schedule(engine, bundle=None, rollback=False, request_id=None):
     with engine.store.lock():
         from .watchdog import require_idle as watchdog_idle
         from .boot_maintenance import require_idle as boot_idle
-        watchdog_idle(c); boot_idle(c)
+        watchdog_idle(c)
         from .preserve import require_network_confirmed
         require_network_confirmed(c.simulate / 'roots/system' if c.simulate else Path('/'))
         job = engine.store.read()
         require(not job or job['stage'] in TERMINAL, 'job_active', 'Finish the OTA task before tool maintenance')
         device = discover(c); storage = layout(c, device, initialized=True); engine._require_shared_mount(storage)
+        from .boot_maintenance import paused_system_binding
+        repair_binding = paused_system_binding(engine)
+        if repair_binding is None: boot_idle(c)
         old = record(c)
         if request_id:
             require(str(uuid.UUID(request_id)) == request_id, 'request_id', 'Maintenance request ID must be a canonical UUID')
@@ -165,8 +168,12 @@ def schedule(engine, bundle=None, rollback=False, request_id=None):
             else:
                 task = {'protocol': 1, 'task_id': request_id or str(uuid.uuid4()), 'version': manifest['version'],
                         'device_id': device['device_id'], 'payload': str(payload), 'completed': [], 'backed_up': [],
+                        'bundle_sha256': sha256(bundle), 'runtime_sha256': manifest['artifact']['sha256'],
+                        'revision': manifest.get('revision'), 'display_version': manifest.get('display_version', manifest['version']),
                         'roles': ['rescue_a', 'rescue_b'] + (['system'] if storage['partitions']['system'] else []),
                         'rollback': False, 'stage': 'queued'}
+        require(task.get('repair_boot_task') in (None, repair_binding), 'boot_system_binding', 'Tool repair belongs to another firmware task')
+        if repair_binding is not None: task['repair_boot_task'] = repair_binding
         task['updated'] = now(); task['stage'] = 'awaiting-rescue' if device['mode'] == 'system' else 'queued'
         atomic_json(c.state / 'maintenance/task.json', task)
         atomic_bytes(c.state / 'maintenance/pending', b'Userland maintenance in progress\n')
@@ -276,6 +283,9 @@ def backup_and_install(engine, task, role, root, files):
             require(sha256(root/relative) == sha256(source), 'tools_install_hash', 'Installed runtime file differs from signed package')
         engine.backend.configure_shared_mount(root, layout(c, discover(c), initialized=True))
         atomic_json(root/'etc/armhpc/ota-runtime.json', {'version': task['version'], 'maintenance': task['task_id']})
+    if role == 'system':
+        from .framework_catalog import rebase
+        rebase(engine, layout(c, discover(c), initialized=True), root, files, backup, task['rollback'])
     if has_clock:
         from .clock_resources import configure_links
         configure_links(root, backup, task['rollback'])
@@ -304,6 +314,9 @@ def worker(engine):
         device = discover(c); storage = layout(c, device, initialized=True); engine._require_shared_mount(storage)
         require(device['mode'] == 'rescue' and task['device_id'] == device['device_id'], 'tools_mode', 'Tool worker requires the matching Rescue device')
         job = engine.store.read(); require(not job or job['stage'] in TERMINAL, 'job_active', 'OTA task appeared during tool maintenance')
+        from .boot_maintenance import paused_system_binding
+        binding = paused_system_binding(engine)
+        require(task.get('repair_boot_task') == binding, 'boot_system_binding', 'The firmware repair binding changed during tool maintenance')
         try:
             task['stage'] = 'installing'; task['updated'] = now(); atomic_json(c.state/'maintenance/task.json', task)
             payload = Path(task['payload']); directory = payload.parent.parent
@@ -380,10 +393,23 @@ def retain_installed_runtime(config, root):
     marker=Path(root)/'usr/lib/armhpc-ota/armhpc_ota/__init__.py'
     tree=ast.parse(marker.read_text())
     version=next(n.value.value for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='__version__' for t in n.targets))
-    if tuple(map(int,version.split('.')))>=tuple(map(int,task['version'].split('.'))):return
+    incoming = tuple(map(int, version.split('.')))
+    maintained = tuple(map(int, task['version'].split('.')))
+    if incoming > maintained:return
     payload=Path(task['payload']);directory=payload.parent.parent
     m=verify((directory/'manifest.json').read_bytes(),config.trust)
     require(sha256(directory/'runtime.tar.xz')==m['artifact']['sha256'],'tools_hash','Maintained runtime changed')
+    if incoming == maintained:
+        def revision(value):
+            require(value is None or isinstance(value, str) and __import__('re').fullmatch(r'r[1-9][0-9]*', value),
+                    'tools_version', 'Invalid retained runtime revision')
+            return int(value[1:]) if value else 0
+        values = [n.value.value for n in tree.body if isinstance(n, ast.Assign) and
+                  any(isinstance(t, ast.Name) and t.id == '__revision__' for t in n.targets) and
+                  isinstance(n.value, ast.Constant)]
+        require(len(values) <= 1, 'tools_version', 'Ambiguous incoming runtime revision')
+        # Compare the signed maintenance revision, including legacy unnumbered builds.
+        if revision(values[0] if values else None) > revision(m.get('revision')):return
     with tarfile.open(directory/'runtime.tar.xz','r:xz') as archive:safe_extract(archive,payload.parent)
     role = 'rescue_a' if (Path(root)/'etc/armhpc/rescue-environment').is_file() else 'system'
     device=discover(config)

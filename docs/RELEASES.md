@@ -2,7 +2,7 @@
 
 [简体中文](RELEASES.zh-CN.md)
 
-Release titles are the tag itself: `v<major>.<minor>.<patch>`. Write concise English release notes in `docs/releases/<tag>.md`, with a Simplified Chinese counterpart named `<tag>.zh-CN.md`. The GitHub description uses the English notes and links to the Chinese document.
+Release titles are the tag itself: `v<major>.<minor>.<patch>-r<revision>`, with a lowercase `r`. Write concise English release notes in `docs/releases/<tag>.md`, with a Simplified Chinese counterpart named `<tag>.zh-CN.md`. The GitHub description uses the English notes and links to the Chinese document.
 
 ## Software packages
 
@@ -37,3 +37,10 @@ Maintenance contains `manifest.json` and `runtime.tar.xz`. Devices verify the si
 SSH/SFTP and USB serial use the same persistent maintenance task. An operation started in the normal system first enters Rescue, then updates the normal system and the writable layers for Rescue A/B. Resume interrupted tasks with their original IDs and package bindings; backups support rollback.
 
 Software versions, system release IDs, manifest sequences, boot ABI, Guardian protocol, and JSON `protocol: 1` are managed independently. Software maintenance does not rewrite signed system manifests or existing payloads. Keep keys, credentials, device backups, and firmware binaries outside source archives.
+
+
+## Release numbering
+
+Use `vA.B.C-rN`, with a lowercase `r` and a positive revision number. For each repository independently, advance the base version by one patch, one minor with patch reset to zero, or one major with minor and patch reset to zero. Examples: `1.2.3` to `1.2.4`, `1.3.0`, or `2.0.0`. Within the same base version, revisions increase but need not be consecutive: `r1`, `r3`, and `r9` may be published directly. Previously published numeric-only tags remain supported.
+
+The release title equals its tag. Artifact filenames include the revision. Compatibility comparisons continue to use the numeric base version, explicit capabilities and the signed manifest requirements. Firmware signature sequences still increase independently. Publication checks the repository's published release history before any upload or metadata change. Existing versioned assets remain immutable.

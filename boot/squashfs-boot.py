@@ -81,6 +81,40 @@ def identity(state):
     return value
 
 
+def resize_shared_filesystem(device):
+    fields = dict(line.split(':', 1) for line in run('tune2fs', '-l', device, environment={'TZ': 'UTC'}).splitlines() if ':' in line)
+    try:
+        blocks = int(fields['Block count'].strip())
+        block_size = int(fields['Block size'].strip())
+    except (KeyError, ValueError):
+        require(False, 'shared_filesystem', 'Cannot determine shared ext4 geometry')
+    require(blocks > 0 and block_size in (1024, 2048, 4096, 8192, 16384, 32768, 65536),
+            'shared_filesystem', 'Invalid shared ext4 geometry')
+    wanted = capacity(device) // block_size
+    require(blocks <= wanted, 'shared_filesystem', 'Shared filesystem exceeds its partition')
+    grow = blocks < wanted
+    if not grow and fields.get('Filesystem state', '').strip() == 'clean':
+        return False
+    mounted = run('findmnt', '-rn', '--source', device, '-o', 'TARGET', accepted=(0, 1))
+    require(not mounted, 'shared_mounted', 'Shared filesystem must be unmounted before checking or growing')
+    import calendar
+    checked_at = int(time.time())
+    for name in ('Last mount time', 'Last write time', 'Last checked'):
+        stamp = fields.get(name, 'n/a').strip()
+        if stamp == 'n/a':
+            continue
+        try:
+            checked_at = max(checked_at, calendar.timegm(time.strptime(stamp, '%a %b %d %H:%M:%S %Y')) + 1)
+        except (ValueError, OverflowError):
+            require(False, 'shared_clock', 'Cannot determine shared filesystem check time')
+    require(0 <= checked_at < 4102444800, 'shared_clock', 'Shared filesystem timestamp is outside the supported range')
+    environment = {'TZ': 'UTC', 'E2FSPROGS_FAKE_TIME': str(checked_at)}
+    run('e2fsck', '-f', '-p', device, accepted=(0, 1), environment=environment)
+    if grow:
+        run('resize2fs', device, environment=environment)
+    return True
+
+
 def grow_shared(device, board):
     """Only extend the last shared partition. BOOT, A/B and reserved prefix never move."""
     parent = run('lsblk', '-n', '-d', '-p', '-o', 'PKNAME', device)
@@ -100,7 +134,7 @@ def grow_shared(device, board):
         from armhpc_ota.platform import grow_mbr_shared
         if grow_mbr_shared(parent,device,board,table,sectors):
             run('partx','--update','--nr','4',parent);run('udevadm','settle','--timeout=15')
-        run('e2fsck','-f','-p',device,accepted=(0,1));run('resize2fs',device)
+        resize_shared_filesystem(device)
         return
     last = sectors - 34
     if p[3]['start'] + p[3]['size'] - 1 < last:
@@ -109,9 +143,7 @@ def grow_shared(device, board):
             '--typecode=4:8300', '--change-name=4:' + board['labels']['shared'], '--partition-guid=4:' + guid, parent)
         run('partx', '--update', '--nr', '4', parent)
         run('udevadm', 'settle', '--timeout=15')
-    # Retrying after a power cut between GPT and resize is safe and idempotent.
-    run('e2fsck', '-f', '-p', device, accepted=(0, 1))
-    run('resize2fs', device)
+    resize_shared_filesystem(device)
 
 
 def kexec_target(selected, files, device, kind):
@@ -183,7 +215,9 @@ def main(root):
         elif maintenance:
             from armhpc_ota.boot_maintenance import record
             task=record(config)
-            require(task and task['task_id']==maintenance and task['stage'] in ('entry-switching','awaiting-watchdog','preparing-system'),
+            require(task and task['task_id']==maintenance and (
+                    task['stage'] in ('entry-switching','awaiting-watchdog','preparing-system') or
+                    (task['stage']=='awaiting-firmware' and task.get('purpose')=='firmware-update')),
                     'boot_maintenance','Candidate is not admitted')
             bundle=verify((config.state/'boot-maintenance/releases'/task['release']/'manifest.json').read_bytes(),config.trust)
             require(bundle['release']==task['release'] and bundle['board']==board['id'] and

@@ -10,9 +10,14 @@ public sealed record UpgradeOptions(string Source,string? Release=null,string Ta
     string? Bundle=null,string? BundleSha256=null,string? Ca=null,string MinimumAgent="1.2.1",string[]? Ranges=null,bool ToolsOnly=false,string? Package=null,string? PackageSha256=null);
 public sealed record AutomaticTask(string TaskId,string DeviceId,UpgradeOptions Options,string MaintenanceId,string JobId,
     string Stage="created",string? Release=null,string? Error=null,string Phase="created",string? Manifest=null,
-    string Kind="ota",string? FirmwareBundle=null,string? FirmwareSha256=null,string? BackupDirectory=null)
+    string Kind="ota",string? FirmwareBundle=null,string? FirmwareSha256=null,string? BackupDirectory=null,DateTimeOffset? CancelledAt=null)
 {
     public bool Terminal=>Stage is "succeeded" or "failed-recoverable" or "cancelled" or "superseded";
+    public AutomaticTask CancelPaused(DateTimeOffset? timestamp=null)
+    {
+        if(Stage!="paused")throw new InvalidOperationException("只能取消暂停的上位机自动任务。");
+        return this with {Stage="cancelled",CancelledAt=(timestamp??DateTimeOffset.UtcNow).ToUniversalTime()};
+    }
     public static AutomaticTask Create(string deviceId,UpgradeOptions options)
     {
         if(deviceId.Length==0 || options.Target is not ("all" or "system" or "rescue"))throw new ArgumentException("自动升级需要已认证设备和有效目标。");
@@ -58,7 +63,7 @@ public interface IUpgradeConnection
     Task<string> ExportFirmwareBackup(JsonElement task,Action<string> log,CancellationToken token)=>throw new NotSupportedException();
 }
 
-public sealed class UpgradeConnection(ConnectionRouter router,Device device,Credentials credentials,string[] ranges):IUpgradeConnection
+public sealed class UpgradeConnection(ConnectionRouter router,Device device,Credentials credentials,string[] ranges,Action<string>? reconnectProgress=null):IUpgradeConnection
 {
     private Endpoint Endpoint=>new(device.Address,device.Port);
     public async Task<JsonElement> Command(string command,IReadOnlyList<string> arguments,bool yes,CancellationToken token)
@@ -89,12 +94,29 @@ public sealed class UpgradeConnection(ConnectionRouter router,Device device,Cred
         string directory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"ARMHPC","OTA","private-boot-backups",id);
         await router.DownloadBoot(Endpoint,credentials,device,task,directory,log,token);return directory;
     }
-    public async Task Reconnect(bool maintenance,CancellationToken token){await router.Reconnect(device,credentials,ranges,token,maintenance);}
+    public async Task Reconnect(bool maintenance,CancellationToken token){await router.Reconnect(device,credentials,ranges,token,maintenance,reconnectProgress);}
 }
 
 /// <summary>Host orchestration only. All signature, disk, trial and recovery decisions use the device CLI.</summary>
 public static class AutomaticUpgrade
 {
+    public static bool NeedsBundledMaintenance(JsonElement status,UpgradeOptions options,string? bundledDigest=null)
+    {
+        if(options.BundleSha256 is null)return false;
+        if(bundledDigest is null)
+        {
+            string path=Path.Combine(AppContext.BaseDirectory,"maintenance","maintenance.tar.xz");
+            if(!File.Exists(path))return false;
+            using var input=File.OpenRead(path);bundledDigest=Convert.ToHexStringLower(SHA256.HashData(input));
+        }
+        if(options.BundleSha256!=bundledDigest || !Version.TryParse(Protocol.Text(status,"agent_version"),out var installed))return false;
+        var expected=Version.Parse(BuildIdentity.CoreVersion);
+        if(installed!=expected)return installed<expected;
+        string revision=Protocol.Text(status,"agent_revision");
+        int current=System.Text.RegularExpressions.Regex.IsMatch(revision,"^r[1-9][0-9]*$") && int.TryParse(revision[1..],out int parsed)?parsed:0;
+        string suffix=BuildIdentity.DisplayVersion.Split('-').Last();
+        return suffix.StartsWith('r') && int.TryParse(suffix[1..],out int desired) && current<desired;
+    }
     public static async Task<AutomaticTask> Run(AutomaticTask original,IUpgradeConnection connection,Action<AutomaticTask> save,
         Action<string> log,CancellationToken token=default,Func<CancellationToken,Task>? delay=null,int maintenancePolls=600,int jobPolls=4800)
     {
@@ -154,7 +176,16 @@ public static class AutomaticUpgrade
                        Protocol.Text(current,"bundle_sha256")!=task.FirmwareSha256 || Protocol.Text(current,"purpose")!="firmware-update")
                         throw new InvalidOperationException("设备的原固件任务绑定改变。");
                     string stage=Protocol.Text(current,"stage");Stage("firmware:"+stage);
-                    if(stage=="committed")return true;
+                    if(stage=="committed")
+                    {
+                        if(!status.TryGetProperty("versions",out var versions) || versions.ValueKind!=JsonValueKind.Object)
+                            throw new InvalidOperationException("固件任务已提交，但设备未提供确认版本；原任务保留，尚未确认完整升级成功。");
+                        bool hasSystem=!string.IsNullOrEmpty(Protocol.Text(versions,"system")) ||
+                            (current.TryGetProperty("original_system",out var originalSystem) && originalSystem.ValueKind==JsonValueKind.Object);
+                        if(Protocol.Text(versions,"rescue")!=task.Release || (hasSystem && Protocol.Text(versions,"system")!=task.Release))
+                            throw new InvalidOperationException("固件任务已提交，但 Rescue 或配套普通系统仍为其他版本；请核对已确认版本并完成系统更新，原任务保留。");
+                        return true;
+                    }
                     if(stage=="rolled-back")return false;
                     if(stage=="failed-needs-recovery")throw new InvalidOperationException("固件任务需要恢复；请查询原 BOOT 任务后继续或回滚。");
                     if(stage=="updating-system" && status.TryGetProperty("job",out var systemJob) &&
@@ -209,7 +240,7 @@ public static class AutomaticUpgrade
             }
             var maintenance=await Query(()=>connection.Maintenance(token),true);CheckId(maintenance);
             bool pending=maintenance.TryGetProperty("maintenance",out var existing) && existing.ValueKind==JsonValueKind.Object && Protocol.Text(existing,"stage") is not ("succeeded" or "rolled-back");
-            bool needsTools=resumeMaintenance || task.Options.ToolsOnly || Version.Parse(Protocol.Text(status,"agent_version"))<Version.Parse(task.Options.MinimumAgent) || pending;
+            bool needsTools=resumeMaintenance || task.Options.ToolsOnly || NeedsBundledMaintenance(status,task.Options) || Version.Parse(Protocol.Text(status,"agent_version"))<Version.Parse(task.Options.MinimumAgent) || pending;
             if(pending && Protocol.Text(existing,"task_id")!=task.MaintenanceId)throw new InvalidOperationException("设备有其他工具维护请求；请先继续或回退该请求。");
             if(needsTools)
             {

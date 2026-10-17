@@ -28,6 +28,12 @@ public static class SerialAuthenticationChecks
             check(phases.Contains("验证命令行回应") && phases.Contains("读取 ARMHPC 设备身份") && phases.Last()=="认证成功","authentication reports login, shell, identity and success phases");
             check(!string.Join(" ",phases).Contains(Login().Password),"authentication progress never includes credentials or raw console text");
         }
+        using(var wire=new Wire())using(var runner=new SerialRunner(_=>wire))
+        {
+            var mixed=Login() with {PrivateKeyPath="unread-ssh-key-fixture"};
+            var result=await runner.Authenticate(Device(),mixed);
+            check(result.Hostname=="serial-host" && wire.PasswordWrites==1,"serial uses the configured password from a mixed SSH key/password profile without reading the key");
+        }
         using(var occupied=new SerialRunner(_=>throw new UnauthorizedAccessException()))
         {
             var error=await Failure(()=>occupied.Authenticate(Device(),Login()));

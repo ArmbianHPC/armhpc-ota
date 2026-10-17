@@ -20,10 +20,11 @@ public sealed partial class SshRunner
             bool submitted=false;string? before=null;
             try
             {
-                using var client=new SshClient(Info(endpoint,credentials));var fingerprint=Pin(client,device);client.Connect();
-                using var cancelled=token.Register(()=>client.Dispose());var identity=Command(client,credentials,"status",[]);
-                ValidateMaintenanceIdentity(device,identity,fingerprint());string hostname=Hostname(client),mode=Protocol.Text(identity,"mode");if(request.VerifyReboot)before=BootId(client);
-                using var command=client.CreateCommand(request.Build(mode,credentials.Username!="root"));command.CommandTimeout=TimeSpan.FromMinutes(30);
+                using var login=ConnectLogin(endpoint,credentials,device,info=>new SshClient(info),token);var client=login.Client;
+                using var cancelled=token.Register(()=>client.Dispose());var identity=Command(client,login.Credentials,"status",[]);
+                ValidateMaintenanceIdentity(device,identity,login.Fingerprint);login.Verified(identity);string hostname=Hostname(client),mode=Protocol.Text(identity,"mode");if(request.VerifyReboot)before=BootId(client);
+                NetworkReconnect.Remember(device,endpoint,mode,NetworkMetadata.Read(client));
+                using var command=client.CreateCommand(request.Build(mode,login.Credentials.Username!="root"));command.CommandTimeout=TimeSpan.FromMinutes(30);
                 submitted=true;string output=command.Execute();return new CommandReply(command.ExitStatus??-1,output,command.Error,hostname,mode,device.DeviceId,BootIdBefore:before);
             }
             catch(Exception error) when(token.IsCancellationRequested){if(submitted)throw new CommandResultUnknownException("已取消结果观察；命令可能已执行，请查询设备状态。",error,before);throw new OperationCanceledException(token);}
@@ -34,10 +35,10 @@ public sealed partial class SshRunner
     public Task<SshTerminal> OpenTerminal(Endpoint endpoint,Credentials credentials,Device device,CancellationToken token)
         =>Task.Run(()=>
         {
-            var client=new SshClient(Info(endpoint,credentials));var fingerprint=Pin(client,device);
+            var login=ConnectLogin(endpoint,credentials,device,info=>new SshClient(info),token);var client=login.Client;
             try
             {
-                using var cancelled=token.Register(()=>client.Dispose());token.ThrowIfCancellationRequested();client.Connect();var identity=Command(client,credentials,"status",[]);ValidateMaintenanceIdentity(device,identity,fingerprint());
+                using var cancelled=token.Register(()=>client.Dispose());token.ThrowIfCancellationRequested();var identity=Command(client,login.Credentials,"status",[]);ValidateMaintenanceIdentity(device,identity,login.Fingerprint);login.Verified(identity);
                 string hostname=Hostname(client);var shell=client.CreateShellStream("xterm",120,35,960,560,8192);return new SshTerminal(client,shell,Protocol.Text(identity,"mode"),hostname);
             }catch{client.Dispose();throw;}
         },token);

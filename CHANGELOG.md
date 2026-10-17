@@ -1,3 +1,42 @@
+# v1.2.3-r12
+
+- Deploy the paired normal system during firmware updates even when the kernel and DTB are unchanged.
+- Migrate registered framework code to authenticated maintenance resources with interruption recovery and paired rollback.
+- Confirm both installed environment versions before reporting a complete firmware upgrade.
+
+# v1.2.3-r11
+
+- Support signed firmware recovery from both the original and current Rescue kernel/DTB baselines.
+- Retain authenticated reconnection, per-environment login, controller-side backup compression and guarded task recovery.
+- Keep newer agent revisions during OS restoration and report the actual CLI build version.
+
+# v1.2.3-r10
+
+- Preserve newer image runtime revisions when retaining signed maintenance tools.
+- Derive the controller help version from its build identity.
+- Apply consecutive base versions with independently numbered revisions.
+
+# v1.2.3-r9
+
+- Bind K3s health commands to the managed DATA and CRI configuration, with bounded startup time and structured readiness errors.
+- Repair signed userland tools and resume the original fully written paired-system trial while retaining failure history.
+
+# v1.2.3-r7
+
+- Export Rescue backup files to the controller, compress and verify them locally, then review shared-storage cleanup.
+- Retain active recovery resources, baselines, identity, configuration and task history; bind cleanup to the exact current plan.
+- Prefer verified SATA DATA for SSH upload staging and check available space before transfer.
+
+- Admit signed normal-firmware Rescue candidates during early boot.
+- Skip completed shared-filesystem growth and check offline ext4 using its stored timestamps before resizing.
+- Restore the original BOOT cache binding across reboots and verify rollback entries before changing task state.
+
+- Cancel paused GUI automation locally while preserving its history and allowing submitted device operations to continue.
+
+- Reconnect across static System and DHCP Rescue addresses using authenticated address history and MAC-assisted discovery.
+- Continue observing the original task when an old DHCP address belongs to another device.
+- Preserve static network precedence and manual DNS settings during system OTA and recovery.
+
 # v1.2.2
 
 - Allow independent framework and OTA versions with explicit compatibility requirements and separate source provenance.

@@ -51,10 +51,11 @@ public static class RebootVerification
         {
             if(lastChanged is not null && request.ExpectedRebootMode is not null)
                 throw new InvalidOperationException("已观察到重启，但未进入目标环境 "+request.ExpectedRebootMode+"，当前为 "+lastChanged.Mode+"。");
-            throw new CommandResultUnknownException("重启确认超时；尚未观察到同一设备的新 boot ID，原命令不会重发。");
+            throw new CommandResultUnknownException("重启确认超时；尚未观察到同一设备的新 boot ID，原命令不会重发。" +
+                (device.LastReconnectDetail.Length == 0 ? "" : " " + device.LastReconnectDetail), bootIdBefore:original.BootIdBefore);
         }
         catch(OperationCanceledException) when(token.IsCancellationRequested)
-        {throw new CommandResultUnknownException("已停止重启结果观察，原命令不会重发。");}
+        {throw new CommandResultUnknownException("已停止重启结果观察，原命令不会重发。",bootIdBefore:original.BootIdBefore);}
     }
 }
 
@@ -71,14 +72,16 @@ public sealed partial class SshRunner
         {
             try
             {
-                using var client=new Renci.SshNet.SshClient(Info(endpoint,credentials));var fingerprint=Pin(client,device);
-                using var stop=token.Register(()=>client.Dispose());token.ThrowIfCancellationRequested();client.Connect();
-                var identity=Command(client,credentials,"status",[],timeout:TimeSpan.FromSeconds(15));ValidateMaintenanceIdentity(device,identity,fingerprint());
+                using var login=ConnectLogin(endpoint,credentials,device,info=>new Renci.SshNet.SshClient(info),token);var client=login.Client;
+                using var stop=token.Register(()=>client.Dispose());token.ThrowIfCancellationRequested();
+                var identity=Command(client,login.Credentials,"status",[],timeout:TimeSpan.FromSeconds(15));ValidateMaintenanceIdentity(device,identity,login.Fingerprint);login.Verified(identity);
                 return new RebootSnapshot(device.DeviceId,BootId(client),Protocol.Text(identity,"mode"),Hostname(client),endpoint.Address);
             }
             catch(Exception) when(token.IsCancellationRequested){throw new OperationCanceledException(token);}
             catch(Exception error) when(error is Renci.SshNet.Common.SshConnectionException or Renci.SshNet.Common.SshOperationTimeoutException or System.Net.Sockets.SocketException)
             {throw new TransientConnectionException("重启后的 SSH 尚不可用。",error);}
+            catch(Exception error) when(error is DeviceIdentityMismatchException or SshHostIdentityException or Renci.SshNet.Common.SshAuthenticationException)
+            {throw new TransientConnectionException(NetworkReconnect.FailureReason(error)+"；继续按原设备重连。",error);}
         },token);
 }
 

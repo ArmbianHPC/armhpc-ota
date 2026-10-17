@@ -13,7 +13,9 @@ public partial class MainWindow
     ICollectionView? deviceView;Credentials? defaultLogin;CancellationTokenSource? authenticating;
     void InitializeManagement()
     {
-        defaultLogin=vault.LoadDefault();deviceView=CollectionViewSource.GetDefaultView(devices);
+        defaultLogin=vault.LoadDefault();
+        foreach(string mode in new[]{"system","rescue"})if(vault.LoadDefaultEnvironment(mode) is {} saved)defaultEnvironmentLogins[mode]=saved;
+        deviceView=CollectionViewSource.GetDefaultView(devices);
         deviceView.Filter=item=>item is Device d && DeviceSelection.Matches(d,HostFilter.Text,ExactHostname.IsChecked==true,(ModeFilter.SelectedItem as ComboBoxItem)?.Tag.ToString()??"all");
         DeviceGrid.ItemsSource=deviceView;CommandPreset.ItemsSource=ArmHpcCommands.ManagementPresets;
         CommandPreset.SelectedItem=ArmHpcCommands.ManagementPresets.First(p=>p.Command=="armhpc --help");
@@ -41,7 +43,7 @@ public partial class MainWindow
         foreach(var d in devices)d.IgnoreFingerprint=IgnoreSshFingerprint.IsChecked==true;
         if(IsLoaded)Log(IgnoreSshFingerprint.IsChecked==true?"临时忽略 SSH 指纹；跨 IP 自动发现仍使用已登记指纹。":"已恢复 SSH 指纹验证。");
     }
-    void RefreshDefaultLabel()=>DefaultCredentialsStatus.Text=defaultLogin is null?"默认登录：未设置":"默认登录："+defaultLogin.Username+" · "+(vault.LoadDefault() is null?"当前会话":"本机加密保存");
+    void RefreshDefaultLabel()=>DefaultCredentialsStatus.Text=DefaultLoginSummary();
     IReadOnlyList<Device> Visible()=>deviceView?.Cast<Device>().ToArray()??[];
     IReadOnlyList<Device> SelectedTargets(bool managed=true)
     {
@@ -67,26 +69,29 @@ public partial class MainWindow
         if(c.Username.Length==0){MessageBox.Show(this,"用户名不能为空。");return;}
         defaultLogin=c;if(save)vault.SaveDefault(c);else vault.ClearDefault();RefreshDefaultLabel();Log("默认登录已配置，账户信息保存在本机。");
     }
-    private void ClearDefaultCredentialsClick(object sender,RoutedEventArgs e){defaultLogin=null;vault.ClearDefault();RefreshDefaultLabel();Log("已清除默认登录；各设备单独保存的登录设置仍可使用。");}
+    private void ClearDefaultCredentialsClick(object sender,RoutedEventArgs e){defaultLogin=null;defaultEnvironmentLogins.Clear();vault.ClearDefault();RefreshDefaultLabel();Log("已清除默认登录；各设备单独保存的登录设置仍可使用。");}
     private void DeviceCredentialsClick(object sender,RoutedEventArgs e)
     {
-        try{var d=Current();var c=Dialogs.Credentials(this,d.Address,out bool save,ResolveCredentials(d));if(c is null)return;if(!d.Managed)throw new InvalidOperationException("候选设备请先使用默认账密或认证按钮登记。");sessionCredentials[d.DeviceId+"/"+d.Transport]=c;if(save)vault.SaveConnection(d,c);Log("已更新所选单台设备的登录设置。");}catch(Exception error){MessageBox.Show(this,error.Message);}
+        try{var d=Current();if(d.Transport=="ssh"){EditDeviceEnvironmentLogins(d);return;}var c=Dialogs.Credentials(this,d.Address+" · "+d.Mode,out bool save,ResolveCredentials(d));if(c is null)return;if(!d.Managed)throw new InvalidOperationException("候选设备请先使用默认账密或认证按钮登记。");RememberLogin(d,d.Mode,c,save);Log("已更新所选设备 "+d.Mode+" 的登录设置。");}catch(Exception error){MessageBox.Show(this,error.Message);}
     }
-    Credentials? ResolveCredentials(Device device)=>sessionCredentials.GetValueOrDefault(device.DeviceId+"/"+device.Transport)??(device.Managed?vault.LoadConnection(device):null)??defaultLogin;
     bool TrustHost(string address,string fingerprint)=>Dispatcher.Invoke(()=>MessageBox.Show(this,$"SSH 主机：{address}\n指纹：{fingerprint}\n核对后信任并继续认证？","确认 SSH 身份",MessageBoxButton.YesNo)==MessageBoxResult.Yes);
-    async Task Register(Device candidate,Credentials credentials,bool remember,CancellationToken token)
+    async Task Register(Device candidate,Credentials credentials,bool remember,CancellationToken token,bool primaryOnly=false)
     {
         void Progress(string phase)=>Dispatcher.InvokeAsync(()=>
         {
             candidate.State="认证 · "+phase;candidate.CommandSummary=phase;
             StatusBar.Text=candidate.Address+" · "+phase;Log(candidate.Address+" · "+phase);
         });
-        var response=await ssh.Authenticate(Endpoint(candidate),credentials,candidate,TrustHost,Progress,token);
+        var actualCredentials=LoginProfiles.Plain(credentials);
+        var login=ConnectionCredentialsFor(candidate,credentials,primaryOnly,(_,_,actual)=>actualCredentials=actual);
+        var response=await ssh.Authenticate(Endpoint(candidate),login,candidate,TrustHost,Progress,token);
         string id=Protocol.Text(response.Data,"device_id");var existing=devices.FirstOrDefault(d=>d.Managed && d.DeviceId==id);var device=existing??candidate;
         if(candidate.Transport=="ssh" && !candidate.IgnoreFingerprint && device.HostKeys.TryGetValue(response.Mode,out var prior) && prior!=response.Fingerprint)throw new InvalidOperationException("此设备环境的密钥与已登记值不同。");
+        PreserveLoginForSwitch(device);
         if(candidate.Transport=="ssh")device.HostKeys[response.Mode]=response.Fingerprint;
         device.Transport=candidate.Transport;device.BaudRate=candidate.BaudRate;device.SerialPorts=candidate.SerialPorts;device.Address=candidate.Address;device.Selected|=candidate.Selected;
-        Update(device,response);sessionCredentials[id+"/"+device.Transport]=credentials;if(remember)vault.SaveConnection(device,credentials);
+        Update(device,response);RememberLogin(device,response.Mode,actualCredentials,remember ||
+            new[]{vault.LoadDefault(),vault.LoadDefaultEnvironment(response.Mode),vault.LoadConnection(device)}.Any(saved=>saved is not null && LoginProfiles.Same(saved,actualCredentials)));
         if(existing is not null && existing!=candidate){candidate.DeviceId=id;candidate.Hostname=device.Hostname;candidate.Mode=device.Mode;candidate.Name=device.Name;devices.Remove(candidate);}Save();Log("已登记 "+(device.Hostname.Length>0?device.Hostname:device.Name)+" · "+device.Mode);
     }
     async Task AuthenticateSelected(bool forceDefault)
@@ -95,16 +100,16 @@ public partial class MainWindow
         try
         {
             var targets=SelectedTargets(false);Credentials? common=forceDefault?defaultLogin:null;bool remember=false;
-            if(forceDefault && common is null)throw new InvalidOperationException("请先设置默认登录账密。");
+            if(forceDefault && targets.Any(d=>DefaultCredentialsFor(d.Mode) is null))throw new InvalidOperationException("请先设置通用默认登录，或所选环境的默认登录。");
             if(!forceDefault && targets.Any(d=>ResolveCredentials(d) is null))common=Dialogs.Credentials(this,"所选设备",out remember,defaultLogin);
             if(!forceDefault && targets.Any(d=>ResolveCredentials(d) is null) && common is null)return;
-            var credentials=targets.ToDictionary(d=>d,d=>forceDefault?common!:(ResolveCredentials(d)??common!));
+            var credentials=targets.ToDictionary(d=>d,d=>forceDefault?DefaultCredentialsFor(d.Mode)!:(ResolveCredentials(d)??common!));
             using var auth=CancellationTokenSource.CreateLinkedTokenSource(closing.Token);authenticating=auth;CancelAuthenticationButton.IsEnabled=true;
             try
             {
                 await RunSelected("认证并读取主机名",targets,false,async d=>
                 {
-                    auth.Token.ThrowIfCancellationRequested();await Register(d,credentials[d],remember,auth.Token);
+                    auth.Token.ThrowIfCancellationRequested();await Register(d,credentials[d],remember,auth.Token,forceDefault);
                     return new{hostname=d.Hostname,device_id=d.DeviceId,mode=d.Mode};
                 });
             }

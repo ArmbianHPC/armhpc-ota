@@ -97,7 +97,9 @@ def build(payload, output, work, wix, version, ui_extension):
     work.mkdir(parents=True, exist_ok=True)
     output.parent.mkdir(parents=True, exist_ok=True)
     root = ET.Element('{' + NS + '}Wix')
-    package = node(root, 'Package', Name='ARMHPC OTA', Manufacturer='ARMHPC', Version=version,
+    info=json.loads((payload/'BUILD-INFO.json').read_text(encoding='utf-8')) if (payload/'BUILD-INFO.json').is_file() else {}
+    display=info.get('display_version',version)
+    package = node(root, 'Package', Name='ARMHPC OTA '+display, Manufacturer='ARMHPC', Version=version,
                    Language='1033', UpgradeCode=UPGRADE, Scope='perUser')
     node(package, 'MajorUpgrade', DowngradeErrorMessage='A newer ARMHPC OTA is already installed.',
          AllowSameVersionUpgrades='yes', Schedule='afterInstallInitialize')

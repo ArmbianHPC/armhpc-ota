@@ -51,6 +51,83 @@ def require_idle(config, diagnostic=False, job_id=None):
             'boot_maintenance_active', 'Finish or roll back BOOT maintenance before another write task')
 
 
+def paused_system_binding(engine):
+    """Admit userland repair only for this firmware's fully written failed trial."""
+    task = record(engine.config)
+    if not task or task['stage'] in DONE:
+        return None
+    require(firmware_update(task) and task['stage'] == 'updating-system',
+            'boot_maintenance_active', 'Finish BOOT deployment before tool maintenance')
+    job = engine.store.read(task.get('system_job_id'))
+    latest = engine.store.read()
+    require(job and latest and latest['job_id'] == job['job_id'] and
+            job['job_id'] == task.get('system_job_id') and job['kind'] == 'boot-maintenance-system' and
+            job['release'] == task['release'] and job['device_id'] == task['device_id'] and
+            job['target'] == 'system' and job['stage'] == 'failed-recoverable' and
+            job.get('write_started') and 'system-written' in job['checkpoints'] and
+            'system-health-passed' not in job['checkpoints'],
+            'boot_system_repair', 'Only the original fully written failed system trial can be repaired')
+    code = job.get('error', {}).get('code', '')
+    require(code.startswith('health_') or code == 'trial_failed',
+            'boot_system_repair', 'This failure requires deployment recovery before userland repair')
+    device, storage, control = engine._recheck(job)
+    require(acceptance_complete(task) and task.get('ordinary_boot_healthy') and
+            device['mode'] == 'rescue' and device['kernel'] == task['candidate_boot']['kernel_release'] and
+            device['root'] == storage['partitions']['rescue_' + task['inactive_slot']]['path'] and
+            control['confirmed']['rescue']['slot'] == task['inactive_slot'] and
+            control['confirmed']['rescue']['boot'] == task['candidate_boot'] and
+            not control.get('trial') and not (control.get('boot_attempt') or {}).get('pending') and
+            control.get('system_blocked') is True,
+            'boot_system_repair', 'Repair requires the confirmed candidate Rescue with the system blocked')
+    prepare_boot_cache(engine.config, storage, task)
+    base = Path(task['bundle']).parent
+    raw = (base / 'manifest.json').read_bytes()
+    signed = verify(raw, engine.config.trust)
+    require(parse_json(raw)['key_id'] in control.get('anchor_key_ids', []) and
+            signed.get('purpose') == 'firmware-update' and signed['release'] == task['release'] and
+            sha256(task['bundle']) == task['bundle_sha256'] and
+            verify((base / 'rescue.manifest.json').read_bytes(), engine.config.trust) == job['manifest'],
+            'boot_system_binding', 'Paused firmware resources differ from the signed original task')
+    return {'task_id': task['task_id'], 'system_job_id': job['job_id'],
+            'release': task['release'], 'bundle_sha256': task['bundle_sha256']}
+
+
+def resume_system(engine, request_id):
+    c = engine.config
+    require(c.simulate or os.geteuid() == 0, 'root', 'System trial recovery requires root')
+    with engine.store.lock():
+        from .maintenance import require_complete
+        from .watchdog import require_idle as watchdog_idle
+        require_complete(c)
+        watchdog_idle(c)
+        task = record(c)
+        require(task and request_id == task['task_id'], 'boot_task', 'Resume the original BOOT request ID')
+        binding = paused_system_binding(engine)
+        require(binding is not None, 'boot_system_repair', 'No paused paired system trial')
+        job = engine.store.read(binding['system_job_id'])
+        _, storage, control = engine._recheck(job)
+        candidate = job.get('system_candidate', {}).get('boot', {})
+        require(candidate and candidate.get('release') == task['release'] and
+                all(candidate.get(k, {}).get('sha256') == task['candidate_boot'][k]['sha256'] for k in ('kernel', 'dtb')),
+                'boot_system_binding', 'The written system candidate differs from the firmware pair')
+        engine.backend.verify_resources(job)
+        if not c.simulate:
+            with engine.backend.mount(storage['partitions']['system']) as root:
+                marker = read_json(root / 'etc/armhpc/release.json')
+                require(marker.get('release') == task['release'] and marker.get('target') == 'system' and
+                        marker.get('kernel') == candidate['kernel_release'],
+                        'boot_system_binding', 'The written system release marker differs')
+        history = list(job.get('trial_failures', []))
+        history.append({'error': job.get('error'), 'updated': job.get('updated')})
+        job.pop('error', None)
+        # Keep system-written, configuration snapshots and the original persistent IDs.
+        # The worker verifies resources and starts a new trial without writing rootfs again.
+        engine.store.save(job, 'ready', 'Resuming the original written system after explicit userland repair',
+                          trial_failures=history[-32:], resume_count=job.get('resume_count', 0) + 1)
+    engine.backend.start_service()
+    return status(c)
+
+
 def stream_copy(src, dest, size):
     dest = Path(dest); temp = dest.with_name('.' + dest.name + '.partial')
     require(size >= 0 and not temp.is_symlink() and not dest.is_symlink(), 'boot_path', 'Unsafe copy path/size')
@@ -75,6 +152,31 @@ def validate_initramfs(config, path, kernel_hash, dtb_hash):
         selector = found/'usr/lib/armhpc-ota/squashfs-boot.py'
         require(selector.is_file() and 'armhpc.recovery-slot' in selector.read_text() and
                 'armhpc.boot-maintenance' in selector.read_text(), 'boot_selector', 'Missing recovery/candidate selector')
+
+
+def recovery_choices(manifest):
+    legacy = manifest['requires']
+    choices = [(legacy, 'recovery-initramfs')]
+    variants = manifest.get('recovery_variants', [])
+    require(isinstance(variants, list) and len(variants) <= 1,
+            'boot_recovery_variants', 'Invalid signed recovery baseline list')
+    for value in variants:
+        require(isinstance(value, dict) and set(value) == {'kernel_sha256', 'dtb_sha256', 'initramfs'} and
+                manifest.get('purpose') == 'firmware-update' and value['initramfs'] == 'initramfs' and
+                value['kernel_sha256'] == manifest['files']['kernel']['sha256'] and
+                value['dtb_sha256'] == manifest['files']['dtb']['sha256'],
+                'boot_recovery_variants', 'Additional recovery must use the signed candidate kernel/DTB/initramfs pair')
+        choices.append((value, value['initramfs']))
+    for value, _ in choices:
+        valid_sha(value['kernel_sha256']);valid_sha(value['dtb_sha256'])
+    return choices
+
+
+def select_recovery_initramfs(manifest, original):
+    for pair, name in recovery_choices(manifest):
+        if all(original[kind]['sha256'] == pair[kind + '_sha256'] for kind in ('kernel', 'dtb')):
+            return name
+    require(False, 'boot_baseline', 'No signed recovery baseline matches the confirmed Rescue kernel/DTB; select a compatible firmware package')
 
 
 def validate_bundle(engine, bundle):
@@ -108,6 +210,8 @@ def validate_bundle(engine, bundle):
                 'boot_sequence','BOOT sequence must increase')
         require(parse_json(raw)['key_id'] in engine.store.control().get('anchor_key_ids',[]),'boot_key','Signer is not pinned')
         entries=m['files']
+        require(purpose!='firmware-update' or not engine.store.control()['confirmed'].get('system') or 'system-rootfs' in entries,
+                'normal_pairing','A normal firmware update needs the signed paired system payload')
         required_files={'kernel','dtb','initramfs','recovery-initramfs','rescue-rootfs','rescue.manifest.json'}
         require(set(entries) in (required_files,required_files|{'system-rootfs'}) and
                 set(names)=={'manifest.json',*entries},'boot_files','Incomplete/extra paired BOOT payload')
@@ -140,8 +244,9 @@ def validate_bundle(engine, bundle):
                     'boot_system_pair','System/BOOT pairing differs')
             atomic_copy(base/file,c.cache/a['sha256'])
     atomic_bytes(c.state/'manifests'/(rescue['release']+'.json'),(base/'rescue.manifest.json').read_bytes())
+    recoveries = recovery_choices(m)
     for name,kh,dh in [('initramfs',entries['kernel']['sha256'],entries['dtb']['sha256']),
-                       ('recovery-initramfs',m['requires']['kernel_sha256'],m['requires']['dtb_sha256'])]:
+                       *[(name, pair['kernel_sha256'], pair['dtb_sha256']) for pair, name in recoveries]]:
         with (base/name).open('rb') as f:require(f.read(4)!=bytes.fromhex('27051956'),'raw_initramfs','Raw initramfs required')
         validate_initramfs(c,base/name,kh,dh)
     if not c.simulate:
@@ -206,7 +311,13 @@ def save(c,task):atomic_json(c.state/'boot-maintenance/task.json',task)
 
 
 def backup(engine,storage,task,base):
-    c=engine.config;private=c.cache/'boot-backups'/task['task_id'];private.mkdir(parents=True,mode=0o700,exist_ok=True)
+    c=engine.config
+    signed=verify((base/'manifest.json').read_bytes(),c.trust)
+    recovery_name=select_recovery_initramfs(signed,task['original_boot'])
+    require(task.get('recovery_initramfs','recovery-initramfs')==recovery_name,
+            'boot_recovery_binding','The approved recovery baseline changed')
+    recovery_initramfs=base/recovery_name
+    private=c.cache/'boot-backups'/task['task_id'];private.mkdir(parents=True,mode=0o700,exist_ok=True)
     image=private/'BOOT-original.img'
     with boot_root(engine,storage) as root:
         for rel in boot_platform.entry_names(c.board()):
@@ -241,7 +352,7 @@ def backup(engine,storage,task,base):
                 try:
                     root=recovery if c.simulate else Path(temp);folder=root/'armhpc-recovery';folder.mkdir(exist_ok=True)
                     for name in ('kernel','dtb'):boot_platform.copy(c,c.state/task['original_boot'][name]['path'],folder/name)
-                    boot_platform.copy(c,base/'recovery-initramfs',folder/'initramfs')
+                    boot_platform.copy(c,recovery_initramfs,folder/'initramfs')
                     if not c.simulate:boot_platform.validate_load_window(c.board(),folder/'kernel',folder/'dtb',folder/'initramfs')
                     install_entries(c,root,'/armhpc-recovery',args(task['original_slot'],recovery=True,board=c.board()))
                     if not c.simulate:run('sync','-f',root)
@@ -266,7 +377,7 @@ def backup(engine,storage,task,base):
         task['recovery']={'protocol':1,'board':c.profile,'layout':c.board()['layout'],'anchor_abi':c.board()['anchor_abi'],
             'slot':task['original_slot'],'files':{name:{'sha256':sha256(path),'bytes':path.stat().st_size} for name,path in
             [('kernel',c.state/task['original_boot']['kernel']['path']),('dtb',c.state/task['original_boot']['dtb']['path']),
-             ('initramfs',base/'recovery-initramfs')]},'signed_manifest':read_json(base/'manifest.json')}
+             ('initramfs',recovery_initramfs)]},'signed_manifest':read_json(base/'manifest.json')}
     task['exports']=str(private/'EXPORT.json')
     atomic_json(task['exports'],{'protocol':1,'task_id':task['task_id'],'device_id':task['device_id'],
                 'emmc_cid_sha256':task.get('emmc_cid_sha256'),'recovery':task.get('recovery'),
@@ -275,21 +386,43 @@ def backup(engine,storage,task,base):
     task['stage']='backup-ready';save(c,task)
 
 
+def prepare_boot_cache(config, storage, task=None):
+    if config.simulate:
+        return
+    from .bootstrap_space import prepare_cache
+    if task is None:
+        prepare_cache(config, storage)
+        return
+    bundle = Path(task['bundle'])
+    require(bundle.is_absolute() and '..' not in bundle.parts and len(bundle.parents) >= 3 and
+            bundle.name == 'bundle.tar.xz' and bundle.parent.name == task['bundle_sha256'] and
+            bundle.parent.parent.name == 'boot-maintenance', 'boot_cache_binding', 'Invalid saved BOOT cache binding')
+    directory = bundle.parents[2]
+    require(directory in (config.cache, config.state / 'cache', Path('/data/armhpc-ota/cache')),
+            'boot_cache_binding', 'Saved BOOT cache differs from the configured storage')
+    if directory == Path('/data/armhpc-ota/cache'):
+        require(storage['partitions'].get('data'), 'boot_cache_unavailable', 'Reconnect the bound SATA DATA disk for this BOOT task')
+        prepare_cache(config, storage)
+        require(Path('/data').is_mount(), 'boot_cache_unavailable', 'The bound DATA cache is not mounted')
+    config.cache = directory
+    require(directory.is_dir(), 'boot_cache_unavailable', 'Saved BOOT cache is unavailable; retain and reconnect its storage')
+
+
 def plan(engine,bundle):
     c=engine.config;d=discover(c);storage=layout(c,d,initialized=True);engine._require_shared_mount(storage)
+    prepare_boot_cache(c,storage)
     m,rescue,base,digest=validate_bundle(engine,bundle);original=engine.store.control()['confirmed']['rescue']
-    require(original['boot']['kernel']['sha256']==m['requires']['kernel_sha256'] and
-            original['boot']['dtb']['sha256']==m['requires']['dtb_sha256'],'boot_baseline','Recovery differs from original Rescue')
+    recovery_name=select_recovery_initramfs(m,original['boot'])
     p=storage['partitions']['boot'];needed=p['size']*3+128*1024**2+sum(v['size'] for v in m['files'].values())
     if not c.simulate:
         candidate_bytes=sum(m['files'][k]['size'] for k in ('kernel','dtb','initramfs'))
-        recovery_bytes=sum((c.state/original['boot'][k]['path']).stat().st_size for k in ('kernel','dtb'))+m['files']['recovery-initramfs']['size']
+        recovery_bytes=sum((c.state/original['boot'][k]['path']).stat().st_size for k in ('kernel','dtb'))+m['files'][recovery_name]['size']
         require(shutil.disk_usage('/boot').free>=max(candidate_bytes,recovery_bytes)+16*1024**2,'boot_partition_space','BOOT lacks capacity for retained and candidate/recovery files')
     require(shutil.disk_usage(c.cache).free>=needed,'boot_space','No capacity for BOOT backup/recovery')
     return {'release':m['release'],'purpose':m.get('purpose','watchdog-diagnostic'),'sequence':m['sequence'],'device_id':d['device_id'],'mode':d['mode'],
             'boot':{'path':p['path'],'start_lba':p['start'],'sectors':p['size']//512},
             'inactive_slot':'b' if original['slot']=='a' else 'a','required_cache_bytes':needed,
-            'bundle':str(base/'bundle.tar.xz'),'bundle_sha256':digest,'original_slot':original['slot'],'recovery_export_required':True,'hardware_verified':False}
+            'bundle':str(base/'bundle.tar.xz'),'bundle_sha256':digest,'original_slot':original['slot'],'recovery_initramfs':recovery_name,'recovery_export_required':True,'hardware_verified':False}
 
 
 def enter(engine,bundle,request_id):
@@ -328,6 +461,7 @@ def apply(engine,bundle=None,request_id=None,exported=None,commit=False):
         from .watchdog import require_idle
         require_idle(c)
         old=record(c)
+        prepare_boot_cache(c,storage,old if old and (old['stage'] not in DONE or old['task_id']==request_id) else None)
         if old and old['task_id']==request_id and old['stage'] in (*DONE,'updating-system'):
             require(old['device_id']==d['device_id'] and (not bundle or sha256(bundle)==old['bundle_sha256']),
                     'boot_binding','Original BOOT request binding changed')
@@ -369,6 +503,7 @@ def worker(engine):
         if not task or task['stage'] not in ('queued','deploying-rescue','installing-entries','entry-switching'):return status(c)
         d=discover(c);storage=layout(c,d,initialized=True);engine._require_shared_mount(storage)
         require(d['mode']=='rescue' and d['device_id']==task['device_id'],'boot_binding','Wrong maintenance environment')
+        prepare_boot_cache(c,storage,task)
         m,rescue,base,_=validate_bundle(engine,task['bundle'])
         return run_candidate(engine,task,m,rescue,base,storage,d)
 
@@ -427,14 +562,16 @@ def rollback(engine,request_id=None):
         else:storage=layout(c,d,initialized=True)
         engine._require_shared_mount(storage)
         require(d['mode']=='rescue','boot_mode','BOOT rollback requires Rescue')
+        prepare_boot_cache(c,storage,task)
         from .watchdog import require_idle
         require_idle(c)
         system_job=engine.store.read(task['system_job_id']) if task.get('system_job_id') else None
         require(not system_job or system_job['stage'] in TERMINAL,'job_active','Finish the paired system task before BOOT rollback')
-        task['stage']='rolling-back';save(c,task)
         entries=Path(task['backups']['BOOT-original.img']['path']).parent/'entries'
         for rel,digest in task['entry_hashes'].items():
-            require(sha256(entries/rel)==digest,'boot_backup_hash','Saved boot entry changed')
+            require((entries/rel).is_file() and not (entries/rel).is_symlink() and sha256(entries/rel)==digest,
+                    'boot_backup_hash','Saved boot entry changed or unavailable')
+        task['stage']='rolling-back';save(c,task)
         with boot_root(engine,storage) as root:
             for rel in task['entry_hashes']:boot_platform.copy(c,entries/rel,root/rel)
         ctl=engine.store.control()
@@ -473,9 +610,8 @@ def commit_candidate(engine,task,storage):
         require(any(r.get('kind')=='panic' for r in records) and not c.simulate,'watchdog_acceptance','Real panic acceptance required')
     system=task.get('original_system')
     paired=not system or all(system['boot'][k]['sha256']==task['candidate_boot'][k]['sha256'] for k in ('kernel','dtb'))
-    if not paired:
-        bundle=verify((c.cache/'boot-maintenance'/task['bundle_sha256']/'manifest.json').read_bytes(),c.trust)
-        require('system-rootfs' in bundle['files'],'normal_pairing','Supply the signed paired system payload before BOOT commit')
+    if system and (firmware_update(task) or not paired):
+        require('system-rootfs' in signed['files'],'normal_pairing','Supply the signed paired system payload before BOOT commit')
         if not firmware_update(task):task['watchdog_checks_completed']=True
         task['stage']='preparing-system';save(c,task)
         return begin_paired_system(engine,task,storage)
@@ -536,7 +672,8 @@ def finish_paired_system(engine,job):
     if job['stage']!='succeeded':return False
     require('system-health-passed' in job['checkpoints'] and acceptance_complete(task),
             'boot_health','Paired system has no health confirmation')
-    _,_,control=engine._recheck(job)
+    _,storage,control=engine._recheck(job)
+    prepare_boot_cache(c,storage,task)
     require(control['confirmed']['system']['boot']==job['system_candidate']['boot'],
             'boot_system_binding','Confirmed system differs from the paired deployment')
     control['highest_boot_sequence']=task['sequence']
@@ -553,6 +690,7 @@ def confirm_diagnostic(engine):
     d=discover(engine.config);storage=layout(engine.config,d,initialized=True)
     require(d['mode']=='rescue' and d['root']==storage['partitions']['rescue_'+task['inactive_slot']]['path'],
             'boot_candidate','Wrong diagnostic root')
+    prepare_boot_cache(engine.config,storage,task)
     dummy={'job_id':'boot-'+task['task_id'],'checkpoints':['rescue-health-passed'],
            'manifest':{'kernels':{'rescue':task['candidate_boot']['kernel_release']}},
            'rescue_candidate':{'slot':task['inactive_slot']}}

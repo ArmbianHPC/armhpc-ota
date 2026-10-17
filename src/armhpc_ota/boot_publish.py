@@ -43,7 +43,9 @@ def build(rescue_manifest,rootfs,kernel,dtb,initramfs,recovery_initramfs,output,
              'anchor_sha256':anchor_digest([{'id':k,**entries[k]} for k in ('kernel','initramfs','dtb')])}
     require(purpose in ('watchdog-diagnostic','firmware-update'),'boot_purpose','Unknown BOOT purpose')
     if purpose=='firmware-update':
-        payload.update(purpose=purpose,minimum_agent='1.2.1')
+        payload.update(purpose=purpose,minimum_agent='1.2.1',recovery_variants=[{
+            'kernel_sha256':entries['kernel']['sha256'],'dtb_sha256':entries['dtb']['sha256'],
+            'initramfs':'initramfs'}])
     from .boot_maintenance import version_tuple
     payload['minimum_agent']=max((payload['minimum_agent'],m['minimum_agent']),key=version_tuple)
     output=Path(output);require(not output.exists() and not output.is_symlink(),'release_exists','Published BOOT candidates cannot be overwritten')

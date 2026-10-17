@@ -9,13 +9,16 @@ static string Password()
     while(true){var key=Console.ReadKey(true);if(key.Key==ConsoleKey.Enter)break;if(key.Key==ConsoleKey.Backspace){if(value.Length>0)value.Length--;}else if(!char.IsControl(key.KeyChar))value.Append(key.KeyChar);}
     Console.Error.WriteLine();return value.ToString();
 }
-const string Help="""
-ARMHPC OTA controller 1.2.2 — SSH / USB serial automation
+string Help=$"""
+ARMHPC OTA controller {BuildIdentity.DisplayVersion} — SSH / USB serial automation
 
   ARMHPC-OTA-CLI command --ssh <IPv4> [--ssh <IPv4> ...] --command "armhpc ..."
       [--devices-csv <inventory.csv> | --all-managed] [--hostname <name>] [--exact-hostname]
       [--concurrency 1..8] [--ignore-unknown] [--ignore-fingerprint] [--pilot]
       [--scan-range <approved-cidr>] [--reboot-timeout 180] [--yes] [--json]
+  ARMHPC-OTA-CLI storage-status --ssh <IPv4> [--json]
+  ARMHPC-OTA-CLI backup-export --ssh <IPv4> --output-directory <private-folder> [--backup-id <id>]
+      [--bundle <signed-maintenance.tar.xz>] [--cleanup-after-export --yes] [--json]
   ARMHPC-OTA-CLI boot-export (--ssh <IPv4> | --serial COM8) --output-directory <private-folder>
   ARMHPC-OTA-CLI usb-rescue --usb-tool-directory <folder> --export <BOOT-export.json> [--prepare | --yes] [--json]
   ARMHPC-OTA-CLI ports [--json]
@@ -39,12 +42,14 @@ Linux serial ports use /dev/ttyACM0 or /dev/ttyUSB0.
 Register --serial-reconnect COM8 or /dev/ttyACM1 to allow SSH -> COM takeover by persistent device ID.
 Watchdog/BOOT commands use "command"; destructive diagnostics require one device and concurrency 1.
 Reboot / connection loss is observed by persistent device, maintenance and OTA job IDs.
+Known System/Rescue addresses and MACs support IP changes; rediscovery still verifies pinned SSH identity.
+Without --scan-range, known MACs enable bounded discovery on directly connected private IPv4 subnets.
 """;
 if(args.Length==0 || args.Contains("--help") || args.Contains("-h")){Console.WriteLine(Help);return 0;}
-if(args[0]=="--version"){Console.WriteLine("1.2.2");return 0;}
+if(args[0]=="--version"){Console.WriteLine(BuildIdentity.DisplayVersion);return 0;}
 if(args[0]=="command")return await ArmHpc.Ota.Cli.CommandCli.Run(args.Skip(1).ToArray());
-var flags=new HashSet<string>{"--yes","--json","--remember","--allow-http","--ignore-fingerprint","--prepare"};
-var valued=new HashSet<string>{"--ssh","--serial","--port","--baud-rate","--source","--release","--target","--bundle","--ca","--scan-range","--serial-reconnect","--minimum-agent","--username","--password-env","--key","--passphrase-env","--hostkey-system","--hostkey-rescue","--device-id","--task","--package","--output-directory","--usb-tool-directory","--export"};
+var flags=new HashSet<string>{"--yes","--json","--remember","--allow-http","--ignore-fingerprint","--prepare","--cleanup-after-export"};
+var valued=new HashSet<string>{"--ssh","--serial","--port","--baud-rate","--source","--release","--target","--bundle","--ca","--scan-range","--serial-reconnect","--minimum-agent","--username","--password-env","--key","--passphrase-env","--hostkey-system","--hostkey-rescue","--device-id","--task","--package","--output-directory","--usb-tool-directory","--export","--backup-id"};
 var values=new Dictionary<string,List<string>>();bool json=args.Contains("--json");
 string? One(string name)=>values.GetValueOrDefault(name)?.LastOrDefault();
 bool Has(string name)=>values.ContainsKey(name);
@@ -68,7 +73,7 @@ try
     }
     if(Has("--remember") && !OperatingSystem.IsWindows())throw new ArgumentException("Linux 不保存登录密码；使用 SSH 私钥或每次输入凭据。");
     if(args[0]=="ports"){Emit(new{ports=SerialRunner.Ports()});return 0;}
-    if(args[0] is not ("status" or "upgrade" or "tools-update" or "resume" or "boot-export"))throw new ArgumentException("未知操作；使用 --help。");
+    if(args[0] is not ("status" or "upgrade" or "tools-update" or "resume" or "boot-export" or "storage-status" or "backup-export"))throw new ArgumentException("未知操作；使用 --help。");
     var vault=new Vault();var devices=vault.LoadDevices().ToList();var tasks=vault.LoadAutomatic().ToList();
     AutomaticTask? task=args[0]=="resume"?tasks.SingleOrDefault(t=>t.TaskId==One("--task"))??throw new ArgumentException("未找到已批准的自动升级任务。"):null;
     Device device;
@@ -94,7 +99,7 @@ try
     if(credentials is null && !Has("--username") && !Has("--password-env") && !Has("--key"))credentials=vault.LoadDefault();
     if(credentials is null || Has("--username") || Has("--password-env") || Has("--key"))
     {
-        string password=Has("--key")?"":One("--password-env") is {} env?Environment.GetEnvironmentVariable(env)??throw new ArgumentException("密码环境变量未设置。"):Password();
+        string password=One("--password-env") is {} env?Environment.GetEnvironmentVariable(env)??throw new ArgumentException("密码环境变量未设置。"):Has("--key")?"":Password();
         string? passphrase=One("--passphrase-env") is {} penv?Environment.GetEnvironmentVariable(penv)??throw new ArgumentException("私钥口令环境变量未设置。"):null;
         credentials=new(One("--username")??"root",password,One("--key"),passphrase);
     }
@@ -108,12 +113,44 @@ try
     {
         var response=await router.Authenticate(new(device.Address,device.Port),credentials,device,Trust,phase=>Console.Error.WriteLine(device.Address+" · "+phase),cancellation.Token);
         string id=Protocol.Text(response.Data,"device_id");var previous=devices.FirstOrDefault(d=>d.DeviceId==id);
-        if(previous is not null && previous!=device)foreach(var pin in previous.HostKeys)device.HostKeys.TryAdd(pin.Key,pin.Value);
+        if(previous is not null && previous!=device)
+        {
+            foreach(var pin in previous.HostKeys)device.HostKeys.TryAdd(pin.Key,pin.Value);
+            device.KnownAddresses=previous.KnownAddresses;device.MacAddresses=previous.MacAddresses;
+        }
         device.DeviceId=id;device.Mode=response.Mode;device.Board=Protocol.Text(response.Data,"board");device.Hostname=response.Hostname;
         if(response.Hostname.Length>0)device.HostnameSource=device.Transport=="serial"?"串口":"SSH";
         if(response.Network is not null){device.MacAddress=response.Network.MacAddress;device.NetworkDetail=response.Network.Detail;}
+        NetworkReconnect.Remember(device,new(device.Address,device.Port),response.Mode,response.Network);
         if(device.Transport=="ssh")device.HostKeys[response.Mode]=response.Fingerprint;
         if(args[0]=="status"){devices.RemoveAll(d=>d.DeviceId==device.DeviceId);devices.Add(device);vault.SaveDevices(devices);if(Has("--remember"))vault.SaveConnection(device,credentials);Emit(response.Data);return 0;}
+        if(args[0] is "storage-status" or "backup-export")
+        {
+            var storage=new BackupStorageSession(router,device,credentials,One("--bundle")??Path.Combine(AppContext.BaseDirectory,"maintenance/maintenance.tar.xz"),line=>Console.Error.WriteLine(line));
+            var state=await storage.Command(["status"],token:cancellation.Token);
+            if(args[0]=="storage-status"){Emit(state);return 0;}
+            if(Has("--cleanup-after-export") && !Has("--yes"))throw new ArgumentException("导出后清理需明确使用 --yes。");
+            string directory=One("--output-directory")??throw new ArgumentException("提供 --output-directory 本机私有备份目录。");
+            var exported=new List<BackupArchiveResult>();
+            var chosen=state.GetProperty("backups").EnumerateArray().Where(b=>One("--backup-id") is not {} id || Protocol.Text(b,"id")==id).ToArray();
+            if(chosen.Length==0)throw new ArgumentException("没有所选备份。");
+            foreach(var b in chosen)
+            {
+                var prepared=await storage.Command(["export","--backup-id",Protocol.Text(b,"id")],token:cancellation.Token);
+                var archive=await router.DownloadBackup(new(device.Address,device.Port),credentials,device,prepared,directory,line=>Console.Error.WriteLine(line),cancellation.Token);
+                await storage.Command(["acknowledge","--inventory-sha256",archive.InventorySha256,"--archive-sha256",archive.ArchiveSha256],token:cancellation.Token);
+                exported.Add(archive);
+            }
+            JsonElement cleanup=default;
+            if(Has("--cleanup-after-export"))
+            {
+                var plan=StorageCleanup.ProtectControllerTasks(await storage.Command(["plan"],token:cancellation.Token),tasks.Any(t=>t.DeviceId==device.DeviceId && !t.Terminal));
+                Console.Error.WriteLine(JsonSerializer.Serialize(plan));
+                if(plan.GetProperty("items").GetArrayLength()>0)
+                    cleanup=await storage.Command(StorageCleanup.Arguments(plan),true,cancellation.Token);
+            }
+            Emit(new{archives=exported,cleanup=cleanup.ValueKind==JsonValueKind.Undefined?(JsonElement?)null:cleanup});return 0;
+        }
         if(args[0]=="boot-export")
         {
             var state=await router.Execute(new(device.Address,device.Port),credentials,device,"boot",["status"],cancellation:cancellation.Token);
@@ -145,7 +182,7 @@ try
     if(args[0]=="resume" && One("--bundle") is {} relocated)
         task=TaskFiles.RelocateBundle(task,relocated);
     Save(task);Console.Error.WriteLine("自动升级任务："+task.TaskId);
-    var result=await AutomaticUpgrade.Run(task,new UpgradeConnection(router,device,credentials,task.Options.Ranges??[]),Save,stage=>Console.Error.WriteLine(stage),cancellation.Token);
+    var result=await AutomaticUpgrade.Run(task,new UpgradeConnection(router,device,credentials,task.Options.Ranges??[],line=>Console.Error.WriteLine(line)),Save,stage=>Console.Error.WriteLine(stage),cancellation.Token);
     Emit(result);return result.Stage=="succeeded"?0:2;
 }
 catch(OperationCanceledException){Console.Error.WriteLine("观察已停止，已提交的设备服务任务继续；用原自动任务 ID resume。");return 130;}
