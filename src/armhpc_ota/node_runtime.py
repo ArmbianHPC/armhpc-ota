@@ -64,4 +64,6 @@ def _firmware_health(target):
             installation=installed(policy_value)
             if installation['desired']['enabled']:
                 require(installation['ready'],'health_k3s','K3s installation differs from its selected version')
-                require(runtime(policy_value)['ready'],'health_k3s_runtime','K3s service, CRI or server API is not healthy')
+                health = runtime(policy_value)
+                require(health['ready'], 'health_k3s_runtime',
+                        'K3s service, CRI or server API is not healthy: ' + json.dumps(health, sort_keys=True))

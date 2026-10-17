@@ -43,7 +43,7 @@ public static class CommandBatch
                     ? new(device.DeviceId,device.Address,reply.Hostname,"unknown",Output:reply.Output,Error:"命令退出状态未返回。",UnknownIgnored:options.IgnoreUnknown)
                     :new(device.DeviceId,device.Address,reply.Hostname,reply.ExitCode==0?"succeeded":"failed",reply.ExitCode,reply.Output,reply.Error);
             }
-            catch(CommandResultUnknownException error){result=new(device.DeviceId,device.Address,device.Hostname,"unknown",Error:error.Message,UnknownIgnored:options.IgnoreUnknown);}
+            catch(CommandResultUnknownException error){result=new(device.DeviceId,device.Address,device.Hostname,"unknown",Error:error.Message,UnknownIgnored:options.IgnoreUnknown,BootIdBefore:error.BootIdBefore);}
             catch(OperationCanceledException) when(token.IsCancellationRequested){queue.Stop();return false;}
             catch(Exception error){result=new(device.DeviceId,device.Address,device.Hostname,"failed",Error:error.Message);}
             Record(result);

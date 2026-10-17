@@ -75,7 +75,7 @@ def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument('--request-id'); p.add_argument('--sha256')
     p.add_argument('--upload-id'); p.add_argument('--size',type=int)
-    p.add_argument('--export-task'); p.add_argument('--name'); p.add_argument('--offset',type=int,default=0)
+    p.add_argument('--storage-export'); p.add_argument('--export-task'); p.add_argument('--name'); p.add_argument('--offset',type=int,default=0)
     a = p.parse_args(argv)
     old = termios.tcgetattr(sys.stdin.fileno()) if sys.stdin.isatty() else None
     if old:
@@ -107,6 +107,9 @@ def main(argv=None):
             if a.upload_id:
                 from .serial_extra import upload
                 upload(Config.load(),a.upload_id,a.sha256,a.size,Lines(),sys.stdout.buffer)
+            elif a.storage_export:
+                from .storage import stream_export
+                stream_export(Config.load(),a.storage_export,a.name,a.offset,Lines(),sys.stdout.buffer)
             elif a.export_task:
                 from .serial_extra import export_boot
                 export_boot(Config.load(),a.export_task,a.name,a.offset,Lines(),sys.stdout.buffer)

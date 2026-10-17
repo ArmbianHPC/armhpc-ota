@@ -113,7 +113,7 @@ public sealed partial class ConsoleSession(IConsoleWire rawWire):IDisposable
     public async Task Login(Credentials credentials,CancellationToken token,Action<string>? progress=null,
         TimeSpan? timeout=null,TimeSpan? probeTimeout=null)
     {
-        if(credentials.PrivateKeyPath is {Length:>0})throw new ArgumentException("串口登录需要用户名和密码，不能使用 SSH 私钥。");
+        if(credentials.PrivateKeyPath is {Length:>0} && credentials.Password.Length==0)throw new ArgumentException("串口登录需要用户名和密码，不能使用 SSH 私钥。");
         if(credentials.Username.Length==0 || credentials.Username.Any(char.IsControl) || credentials.Password.Any(char.IsControl))
             throw new ArgumentException("用户名不能为空，登录内容不能包含控制字符。");
         var buffer=new StringBuilder();var deadline=Stopwatch.StartNew();

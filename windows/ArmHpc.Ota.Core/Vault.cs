@@ -33,9 +33,21 @@ public sealed class Vault
         try { return JsonSerializer.Deserialize<Credentials>(plaintext); }
         finally { CryptographicOperations.ZeroMemory(plaintext); }
     }
-    public void SaveConnection(Device device,Credentials credentials)=>Save(device.DeviceId+"/"+device.Transport,credentials);
+    public void SaveEnvironmentConnection(string deviceId,string mode,Credentials credentials)
+    {
+        if(deviceId.Length==0 || mode is not ("system" or "rescue"))throw new ArgumentException("需要设备 ID 和有效环境。");
+        Save(LoginProfiles.SessionKey(deviceId,"ssh",mode),LoginProfiles.Plain(credentials));
+    }
+    public Credentials? LoadEnvironmentConnection(string deviceId,string mode)
+        =>deviceId.Length>0 && mode is "system" or "rescue"?Load(LoginProfiles.SessionKey(deviceId,"ssh",mode)):null;
+    public void SaveConnection(Device device,Credentials credentials)
+    {
+        if(device.Transport=="ssh" && device.Mode is "system" or "rescue")SaveEnvironmentConnection(device.DeviceId,device.Mode,credentials);
+        else Save(device.DeviceId+"/"+device.Transport,LoginProfiles.Plain(credentials));
+    }
     public Credentials? LoadConnection(Device device)
     {
+        if(device.Transport=="ssh" && LoadEnvironmentConnection(device.DeviceId,device.Mode) is {} environment)return environment;
         var value=Load(device.DeviceId+"/"+device.Transport);if(value is not null)return value;
         var legacy=Load(device.DeviceId);return device.Transport=="serial" && legacy?.PrivateKeyPath is not null?null:legacy;
     }
@@ -43,11 +55,22 @@ public sealed class Vault
     {
         if(device.DeviceId.Length==0)return;
         File.Delete(FileFor(device.DeviceId+"/"+device.Transport));
+        if(device.Transport=="ssh")foreach(string mode in new[]{"system","rescue"})File.Delete(FileFor(LoginProfiles.SessionKey(device.DeviceId,"ssh",mode)));
         if(legacy)File.Delete(FileFor(device.DeviceId));
     }
     public void SaveDefault(Credentials credentials)=>Save("controller/default-login",credentials);
     public Credentials? LoadDefault()=>Load("controller/default-login");
-    public void ClearDefault()=>File.Delete(FileFor("controller/default-login"));
+    public void SaveDefaultEnvironment(string mode,Credentials credentials)
+    {
+        if(mode is not ("system" or "rescue"))throw new ArgumentException("需要有效登录环境。");
+        Save("controller/default-login/"+mode,LoginProfiles.Plain(credentials));
+    }
+    public Credentials? LoadDefaultEnvironment(string mode)=>mode is "system" or "rescue"?Load("controller/default-login/"+mode):null;
+    public void ClearDefault()
+    {
+        File.Delete(FileFor("controller/default-login"));
+        foreach(string mode in new[]{"system","rescue"})File.Delete(FileFor("controller/default-login/"+mode));
+    }
     public void SaveDevices(IEnumerable<Device> devices) => Atomic(Path.Combine(directory, "devices.json"), JsonSerializer.SerializeToUtf8Bytes(devices.Where(d => d.Managed)));
     public IReadOnlyList<Device> LoadDevices() => File.Exists(Path.Combine(directory, "devices.json")) ? JsonSerializer.Deserialize<List<Device>>(File.ReadAllBytes(Path.Combine(directory, "devices.json"))) ?? [] : [];
     public void SaveTasks(IEnumerable<PendingTask> tasks) => Atomic(Path.Combine(directory, "tasks.json"), JsonSerializer.SerializeToUtf8Bytes(tasks));

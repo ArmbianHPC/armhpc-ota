@@ -10,10 +10,10 @@ from .io import read_json, parse_json
 from .dependencies import SYSTEM_PATH, TOOL_PACKAGES
 
 
-def run(*args, accepted=(0,), capture=True):
+def run(*args, accepted=(0,), capture=True, environment=None):
     try:
         result = subprocess.run([str(arg) for arg in args], capture_output=capture, text=capture,
-                                env={**os.environ, 'PATH': SYSTEM_PATH, 'LC_ALL': 'C.UTF-8'})
+                                env={**os.environ, **(environment or {}), 'PATH': SYSTEM_PATH, 'LC_ALL': 'C.UTF-8'})
     except FileNotFoundError as error:
         command = str(args[0])
         package = TOOL_PACKAGES.get(Path(command).name)

@@ -57,7 +57,7 @@ public sealed partial class SshRunner
             var identity=await Execute(endpoint,credentials,device,"status",[],cancellation:token);
             await Task.Run(()=>
             {
-                using var client=new SftpClient(Info(endpoint,credentials));Pin(client,device,identity.Mode);client.OperationTimeout=TimeSpan.FromSeconds(30);client.Connect();
+                using var login=ConnectLogin(endpoint,credentials,device,info=>new SftpClient(info),token,requiredMode:identity.Mode);var client=login.Client;client.OperationTimeout=TimeSpan.FromSeconds(30);
                 using var cancelled=token.Register(()=>client.Dispose());
                 try{UploadResumablePart(client,Protocol.Text(local,"path"),remote,offset,size,log,token);}
                 catch(Exception) when(token.IsCancellationRequested){throw new OperationCanceledException(token);}

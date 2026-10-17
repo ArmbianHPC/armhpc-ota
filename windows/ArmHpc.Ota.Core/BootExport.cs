@@ -53,7 +53,7 @@ public sealed partial class SshRunner
         var identity=await Execute(endpoint,credentials,device,"status",[],cancellation:token);
         await Task.Run(()=>
         {
-            using var client=new SftpClient(Info(endpoint,credentials));Pin(client,device,identity.Mode);client.Connect();
+            using var login=ConnectLogin(endpoint,credentials,device,info=>new SftpClient(info),token,requiredMode:identity.Mode);var client=login.Client;
             using var cancelled=token.Register(()=>client.Dispose());client.OperationTimeout=TimeSpan.FromSeconds(30);
             foreach(var item in task.GetProperty("backups").EnumerateObject())
             {

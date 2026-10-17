@@ -51,6 +51,83 @@ def require_idle(config, diagnostic=False, job_id=None):
             'boot_maintenance_active', 'Finish or roll back BOOT maintenance before another write task')
 
 
+def paused_system_binding(engine):
+    """Admit userland repair only for this firmware's fully written failed trial."""
+    task = record(engine.config)
+    if not task or task['stage'] in DONE:
+        return None
+    require(firmware_update(task) and task['stage'] == 'updating-system',
+            'boot_maintenance_active', 'Finish BOOT deployment before tool maintenance')
+    job = engine.store.read(task.get('system_job_id'))
+    latest = engine.store.read()
+    require(job and latest and latest['job_id'] == job['job_id'] and
+            job['job_id'] == task.get('system_job_id') and job['kind'] == 'boot-maintenance-system' and
+            job['release'] == task['release'] and job['device_id'] == task['device_id'] and
+            job['target'] == 'system' and job['stage'] == 'failed-recoverable' and
+            job.get('write_started') and 'system-written' in job['checkpoints'] and
+            'system-health-passed' not in job['checkpoints'],
+            'boot_system_repair', 'Only the original fully written failed system trial can be repaired')
+    code = job.get('error', {}).get('code', '')
+    require(code.startswith('health_') or code == 'trial_failed',
+            'boot_system_repair', 'This failure requires deployment recovery before userland repair')
+    device, storage, control = engine._recheck(job)
+    require(acceptance_complete(task) and task.get('ordinary_boot_healthy') and
+            device['mode'] == 'rescue' and device['kernel'] == task['candidate_boot']['kernel_release'] and
+            device['root'] == storage['partitions']['rescue_' + task['inactive_slot']]['path'] and
+            control['confirmed']['rescue']['slot'] == task['inactive_slot'] and
+            control['confirmed']['rescue']['boot'] == task['candidate_boot'] and
+            not control.get('trial') and not (control.get('boot_attempt') or {}).get('pending') and
+            control.get('system_blocked') is True,
+            'boot_system_repair', 'Repair requires the confirmed candidate Rescue with the system blocked')
+    prepare_boot_cache(engine.config, storage, task)
+    base = Path(task['bundle']).parent
+    raw = (base / 'manifest.json').read_bytes()
+    signed = verify(raw, engine.config.trust)
+    require(parse_json(raw)['key_id'] in control.get('anchor_key_ids', []) and
+            signed.get('purpose') == 'firmware-update' and signed['release'] == task['release'] and
+            sha256(task['bundle']) == task['bundle_sha256'] and
+            verify((base / 'rescue.manifest.json').read_bytes(), engine.config.trust) == job['manifest'],
+            'boot_system_binding', 'Paused firmware resources differ from the signed original task')
+    return {'task_id': task['task_id'], 'system_job_id': job['job_id'],
+            'release': task['release'], 'bundle_sha256': task['bundle_sha256']}
+
+
+def resume_system(engine, request_id):
+    c = engine.config
+    require(c.simulate or os.geteuid() == 0, 'root', 'System trial recovery requires root')
+    with engine.store.lock():
+        from .maintenance import require_complete
+        from .watchdog import require_idle as watchdog_idle
+        require_complete(c)
+        watchdog_idle(c)
+        task = record(c)
+        require(task and request_id == task['task_id'], 'boot_task', 'Resume the original BOOT request ID')
+        binding = paused_system_binding(engine)
+        require(binding is not None, 'boot_system_repair', 'No paused paired system trial')
+        job = engine.store.read(binding['system_job_id'])
+        _, storage, control = engine._recheck(job)
+        candidate = job.get('system_candidate', {}).get('boot', {})
+        require(candidate and candidate.get('release') == task['release'] and
+                all(candidate.get(k, {}).get('sha256') == task['candidate_boot'][k]['sha256'] for k in ('kernel', 'dtb')),
+                'boot_system_binding', 'The written system candidate differs from the firmware pair')
+        engine.backend.verify_resources(job)
+        if not c.simulate:
+            with engine.backend.mount(storage['partitions']['system']) as root:
+                marker = read_json(root / 'etc/armhpc/release.json')
+                require(marker.get('release') == task['release'] and marker.get('target') == 'system' and
+                        marker.get('kernel') == candidate['kernel_release'],
+                        'boot_system_binding', 'The written system release marker differs')
+        history = list(job.get('trial_failures', []))
+        history.append({'error': job.get('error'), 'updated': job.get('updated')})
+        job.pop('error', None)
+        # Keep system-written, configuration snapshots and the original persistent IDs.
+        # The worker verifies resources and starts a new trial without writing rootfs again.
+        engine.store.save(job, 'ready', 'Resuming the original written system after explicit userland repair',
+                          trial_failures=history[-32:], resume_count=job.get('resume_count', 0) + 1)
+    engine.backend.start_service()
+    return status(c)
+
+
 def stream_copy(src, dest, size):
     dest = Path(dest); temp = dest.with_name('.' + dest.name + '.partial')
     require(size >= 0 and not temp.is_symlink() and not dest.is_symlink(), 'boot_path', 'Unsafe copy path/size')
@@ -275,8 +352,31 @@ def backup(engine,storage,task,base):
     task['stage']='backup-ready';save(c,task)
 
 
+def prepare_boot_cache(config, storage, task=None):
+    if config.simulate:
+        return
+    from .bootstrap_space import prepare_cache
+    if task is None:
+        prepare_cache(config, storage)
+        return
+    bundle = Path(task['bundle'])
+    require(bundle.is_absolute() and '..' not in bundle.parts and len(bundle.parents) >= 3 and
+            bundle.name == 'bundle.tar.xz' and bundle.parent.name == task['bundle_sha256'] and
+            bundle.parent.parent.name == 'boot-maintenance', 'boot_cache_binding', 'Invalid saved BOOT cache binding')
+    directory = bundle.parents[2]
+    require(directory in (config.cache, config.state / 'cache', Path('/data/armhpc-ota/cache')),
+            'boot_cache_binding', 'Saved BOOT cache differs from the configured storage')
+    if directory == Path('/data/armhpc-ota/cache'):
+        require(storage['partitions'].get('data'), 'boot_cache_unavailable', 'Reconnect the bound SATA DATA disk for this BOOT task')
+        prepare_cache(config, storage)
+        require(Path('/data').is_mount(), 'boot_cache_unavailable', 'The bound DATA cache is not mounted')
+    config.cache = directory
+    require(directory.is_dir(), 'boot_cache_unavailable', 'Saved BOOT cache is unavailable; retain and reconnect its storage')
+
+
 def plan(engine,bundle):
     c=engine.config;d=discover(c);storage=layout(c,d,initialized=True);engine._require_shared_mount(storage)
+    prepare_boot_cache(c,storage)
     m,rescue,base,digest=validate_bundle(engine,bundle);original=engine.store.control()['confirmed']['rescue']
     require(original['boot']['kernel']['sha256']==m['requires']['kernel_sha256'] and
             original['boot']['dtb']['sha256']==m['requires']['dtb_sha256'],'boot_baseline','Recovery differs from original Rescue')
@@ -328,6 +428,7 @@ def apply(engine,bundle=None,request_id=None,exported=None,commit=False):
         from .watchdog import require_idle
         require_idle(c)
         old=record(c)
+        prepare_boot_cache(c,storage,old if old and (old['stage'] not in DONE or old['task_id']==request_id) else None)
         if old and old['task_id']==request_id and old['stage'] in (*DONE,'updating-system'):
             require(old['device_id']==d['device_id'] and (not bundle or sha256(bundle)==old['bundle_sha256']),
                     'boot_binding','Original BOOT request binding changed')
@@ -369,6 +470,7 @@ def worker(engine):
         if not task or task['stage'] not in ('queued','deploying-rescue','installing-entries','entry-switching'):return status(c)
         d=discover(c);storage=layout(c,d,initialized=True);engine._require_shared_mount(storage)
         require(d['mode']=='rescue' and d['device_id']==task['device_id'],'boot_binding','Wrong maintenance environment')
+        prepare_boot_cache(c,storage,task)
         m,rescue,base,_=validate_bundle(engine,task['bundle'])
         return run_candidate(engine,task,m,rescue,base,storage,d)
 
@@ -427,14 +529,16 @@ def rollback(engine,request_id=None):
         else:storage=layout(c,d,initialized=True)
         engine._require_shared_mount(storage)
         require(d['mode']=='rescue','boot_mode','BOOT rollback requires Rescue')
+        prepare_boot_cache(c,storage,task)
         from .watchdog import require_idle
         require_idle(c)
         system_job=engine.store.read(task['system_job_id']) if task.get('system_job_id') else None
         require(not system_job or system_job['stage'] in TERMINAL,'job_active','Finish the paired system task before BOOT rollback')
-        task['stage']='rolling-back';save(c,task)
         entries=Path(task['backups']['BOOT-original.img']['path']).parent/'entries'
         for rel,digest in task['entry_hashes'].items():
-            require(sha256(entries/rel)==digest,'boot_backup_hash','Saved boot entry changed')
+            require((entries/rel).is_file() and not (entries/rel).is_symlink() and sha256(entries/rel)==digest,
+                    'boot_backup_hash','Saved boot entry changed or unavailable')
+        task['stage']='rolling-back';save(c,task)
         with boot_root(engine,storage) as root:
             for rel in task['entry_hashes']:boot_platform.copy(c,entries/rel,root/rel)
         ctl=engine.store.control()
@@ -536,7 +640,8 @@ def finish_paired_system(engine,job):
     if job['stage']!='succeeded':return False
     require('system-health-passed' in job['checkpoints'] and acceptance_complete(task),
             'boot_health','Paired system has no health confirmation')
-    _,_,control=engine._recheck(job)
+    _,storage,control=engine._recheck(job)
+    prepare_boot_cache(c,storage,task)
     require(control['confirmed']['system']['boot']==job['system_candidate']['boot'],
             'boot_system_binding','Confirmed system differs from the paired deployment')
     control['highest_boot_sequence']=task['sequence']
@@ -553,6 +658,7 @@ def confirm_diagnostic(engine):
     d=discover(engine.config);storage=layout(engine.config,d,initialized=True)
     require(d['mode']=='rescue' and d['root']==storage['partitions']['rescue_'+task['inactive_slot']]['path'],
             'boot_candidate','Wrong diagnostic root')
+    prepare_boot_cache(engine.config,storage,task)
     dummy={'job_id':'boot-'+task['task_id'],'checkpoints':['rescue-health-passed'],
            'manifest':{'kernels':{'rescue':task['candidate_boot']['kernel_release']}},
            'rescue_candidate':{'slot':task['inactive_slot']}}

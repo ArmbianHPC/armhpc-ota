@@ -45,7 +45,7 @@ public static class CommandCli
             Credentials? supplied=null;
             if(Has("--username") || Has("--password-env") || Has("--key"))
             {
-                string password=Has("--key")?"":One("--password-env") is {} env?Environment.GetEnvironmentVariable(env)??throw new ArgumentException("密码环境变量未设置。"):ReadPassword();
+                string password=One("--password-env") is {} env?Environment.GetEnvironmentVariable(env)??throw new ArgumentException("密码环境变量未设置。"):Has("--key")?"":ReadPassword();
                 string? phrase=One("--passphrase-env") is {} pe?Environment.GetEnvironmentVariable(pe)??throw new ArgumentException("私钥口令环境变量未设置。"):null;
                 supplied=new(One("--username")??"root",password,One("--key"),phrase);
             }

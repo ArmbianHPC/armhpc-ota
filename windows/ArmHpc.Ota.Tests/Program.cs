@@ -4,6 +4,13 @@ using System.Text.Json;
 int checks = 0;
 void Check(bool condition, string label) { if (!condition) throw new Exception("FAIL: " + label); checks++; Console.WriteLine("PASS: " + label); }
 void Refused(Action operation, string label) { try { operation(); } catch { checks++; Console.WriteLine("PASS: " + label); return; } throw new Exception("FAIL: " + label); }
+var expectedAssemblyVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version!;
+var coreAssembly = typeof(Device).Assembly;
+var cliAssembly = typeof(ArmHpc.Ota.Cli.CommandCli).Assembly;
+Check(coreAssembly.GetName().Version == expectedAssemblyVersion, "core assembly uses the central release version");
+Check(cliAssembly.GetName().Version == expectedAssemblyVersion, "CLI assembly uses the central release version");
+Check(System.Diagnostics.FileVersionInfo.GetVersionInfo(coreAssembly.Location).FileVersion == expectedAssemblyVersion.ToString(), "core file version matches the release");
+Check(System.Diagnostics.FileVersionInfo.GetVersionInfo(cliAssembly.Location).FileVersion == expectedAssemblyVersion.ToString(), "CLI file version matches the release");
 Check(Scanner.Expand("192.168.200.3/30").SequenceEqual(new[] { "192.168.200.1", "192.168.200.2" }), "explicit CIDR scope");
 Check(Scanner.Expand("192.168.200.5/32").Single() == "192.168.200.5", "single address");
 Check(Scanner.Expand("192.168.200.4/31").Count == 2, "point-to-point range");
@@ -133,4 +140,12 @@ await SerialAuthenticationChecks.Run(Check);
 await SerialRebootChecks.Run(Check);
 await TaskFilesChecks.Run(Check,Refused);
 await DeviceDiscoveryChecks.Run(Check);
+await NetworkReconnectChecks.Run(Check);
+await NetworkReconnectRecoveryChecks.Run(Check);
+await MacDiscoveryChecks.Run(Check);
+await EnvironmentLoginChecks.Run(Check);
+DualAuthenticationChecks.Run(Check);
+await PausedTaskCancellationChecks.Run(Check);
+await BackupStorageChecks.Run(Check,Refused);
+StorageBridgeChecks.Run(Check,Refused);
 Console.WriteLine($"{checks} checks passed; no physical device writes performed.");

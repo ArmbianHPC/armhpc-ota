@@ -51,13 +51,15 @@ public partial class MainWindow : Window
     private string[] VersionArguments() => string.IsNullOrWhiteSpace(Release.Text) ? ["--target", TargetName] : ["--target", TargetName, "--release", Release.Text.Trim()];
     private Credentials CredentialsFor(Device device)
     {
-        device.IgnoreFingerprint=IgnoreSshFingerprint.IsChecked==true;
-        if (sessionCredentials.TryGetValue(device.DeviceId+"/"+device.Transport, out var cached)) return cached;
-        var stored = (device.Managed ? vault.LoadConnection(device) : null)??defaultLogin;
-        if (stored is not null) { sessionCredentials[device.DeviceId+"/"+device.Transport] = stored; return stored; }
-        var credentials = Dialogs.Credentials(this, device.Address, out bool remember) ?? throw new OperationCanceledException("认证已取消。");
-        if (device.Managed) { sessionCredentials[device.DeviceId+"/"+device.Transport] = credentials; if (remember) vault.SaveConnection(device, credentials); }
-        return credentials;
+        device.IgnoreFingerprint = IgnoreSshFingerprint.IsChecked == true;
+        var credentials = ResolveCredentials(device);
+        if (credentials is null)
+        {
+            credentials = Dialogs.Credentials(this, device.Address + " · " + device.Mode, out bool remember)
+                ?? throw new OperationCanceledException("认证已取消。");
+            if (device.Managed) RememberLogin(device, device.Mode, credentials, remember);
+        }
+        return ConnectionCredentialsFor(device, credentials);
     }
 
     private void Update(Device device, RemoteResult response)
@@ -73,6 +75,7 @@ public partial class MainWindow : Window
         device.ClockStatus=clock.Caption;device.ClockDetail=clock.Detail;
         var node=NodePresentation.Describe(status);device.NodeStatus=node.Caption;device.NodeDetail=node.Detail;
         device.DeviceId = id; device.Board = Protocol.Text(status, "board");
+        NetworkReconnect.Remember(device,Endpoint(device),response.Mode,response.Network);
         if (string.IsNullOrEmpty(device.Name)) device.Name = device.Hostname.Length>0?device.Hostname:id[..Math.Min(12, id.Length)];
         var versions = new List<string>();
         if (status.TryGetProperty("confirmed", out var confirmed))
@@ -201,7 +204,7 @@ public partial class MainWindow : Window
                 approved[device.DeviceId] = ["--target", Protocol.Text(plan.Data, "target"), "--release", Protocol.Text(plan.Data, "release")];
                 Log(device.Name + " · 计划已核对。");
             }
-            if (MessageBox.Show(this, $"确认更新 {selected.Length} 台设备？第一台成功后继续；写盘后的任务不能中止。\n重连范围：{string.Join(", ", ranges.DefaultIfEmpty("仅原 IP"))}", "执行已预览计划", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+            if (MessageBox.Show(this, $"确认更新 {selected.Length} 台设备？第一台成功后继续；写盘后的任务不能中止。\n重连范围：{string.Join(", ", ranges.DefaultIfEmpty("已确认地址；有 MAC 时搜索本机直连网段"))}", "执行已预览计划", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
             batching = true; StartBatchButton.IsEnabled = false;
             int concurrency = int.Parse(((ComboBoxItem)Concurrency.SelectedItem).Content.ToString()!);
             await queue.Run(selected, concurrency, async device =>
@@ -234,7 +237,7 @@ public partial class MainWindow : Window
                 ["--target", task.Target, "--release", task.Release, "--request-id", task.JobId], true, cancellation: closing.Token)).Data,
             async () =>
             {
-                var endpoint = await ssh.Reconnect(device, credentials, task.Ranges ?? [], closing.Token);
+                var endpoint = await ssh.Reconnect(device, credentials, task.Ranges ?? [], closing.Token,progress:Log);
                 if (endpoint is not null) { device.Address = endpoint.Address; Save(); }
             }, (stage, percent) =>
             {
@@ -318,7 +321,7 @@ public partial class MainWindow : Window
                 }
             } catch(Exception error) when(error is IOException or Renci.SshNet.Common.SshException or System.Net.Sockets.SocketException)
             {
-                var endpoint=await ssh.Reconnect(device,CredentialsFor(device),task.Ranges,closing.Token,true);
+                var endpoint=await ssh.Reconnect(device,CredentialsFor(device),task.Ranges,closing.Token,true,Log);
                 if(endpoint is not null){device.Address=endpoint.Address;Save();}
             }
             await Task.Delay(3000,closing.Token);
@@ -340,7 +343,7 @@ public partial class MainWindow : Window
     private void DisconnectClick(object sender,RoutedEventArgs e){try{var d=Current();ssh.Disconnect(d);Log(d.Name+" · 串口已释放；设备服务任务继续。");}catch(Exception error){MessageBox.Show(this,error.Message);}}
     private async Task<bool> RunAutomatic(Device device,AutomaticTask task)
     {
-        var connection=new UpgradeConnection(ssh,device,CredentialsFor(device),task.Options.Ranges??[]);
+        var connection=new UpgradeConnection(ssh,device,CredentialsFor(device),task.Options.Ranges??[],Log);
         var completed=await AutomaticUpgrade.Run(task,connection,value=>
         {
             int index=automaticTasks.FindIndex(t=>t.TaskId==value.TaskId);if(index>=0)automaticTasks[index]=value;else automaticTasks.Add(value);Save();
@@ -356,7 +359,7 @@ public partial class MainWindow : Window
             catch(TransientConnectionException)
             {
                 device.State="升级结果已记录 · 等待重连刷新";device.CommandSummary=device.State;Save();
-                try{await ssh.Reconnect(device,CredentialsFor(device),task.Options.Ranges??[],closing.Token);}catch(TransientConnectionException){}
+                try{await ssh.Reconnect(device,CredentialsFor(device),task.Options.Ranges??[],closing.Token,progress:Log);}catch(TransientConnectionException){}
                 await Task.Delay(3000,closing.Token);
             }
         }

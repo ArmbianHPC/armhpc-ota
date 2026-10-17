@@ -15,32 +15,24 @@ public sealed partial class SshRunner
     {
         try { return await Task.Run(() =>
         {
-            AuthenticationMethod auth = credentials.PrivateKeyPath is { Length: > 0 }
-                ? new PrivateKeyAuthenticationMethod(credentials.Username, new PrivateKeyFile(credentials.PrivateKeyPath, credentials.Passphrase))
-                : new PasswordAuthenticationMethod(credentials.Username, credentials.Password);
-            var info = new ConnectionInfo(endpoint.Address, endpoint.Port, credentials.Username, auth) { Timeout = TimeSpan.FromSeconds(8) };
-            using var client = new SshClient(info);
+            using var login = ConnectLogin(endpoint, credentials, expected, info => new SshClient(info), cancellation, approveHostKey);
+            var client = login.Client;
+            var actualCredentials = login.Credentials;
+            string fingerprint = login.Fingerprint;
             using var registration = cancellation.Register(() => client.Dispose());
-            string fingerprint = "";
-            client.HostKeyReceived += (_, args) =>
-            {
-                fingerprint = "SHA256:" + Convert.ToBase64String(SHA256.HashData(args.HostKey)).TrimEnd('=');
-                args.CanTrust = expected?.IgnoreFingerprint==true || expected?.HostKeys.Values.Contains(fingerprint, StringComparer.Ordinal) == true ||
-                                (approveHostKey?.Invoke(endpoint.Address, fingerprint) ?? false);
-            };
-            cancellation.ThrowIfCancellationRequested();
-            client.Connect();
             // Identity is checked before any mutating CLI command, even at a previously known IP.
-            JsonElement status = Command(client, credentials, "status", []);
+            JsonElement status = Command(client, actualCredentials, "status", []);
             string id = Protocol.Text(status, "device_id"), mode = Protocol.Text(status, "mode");
             if (id.Length == 0 || mode is not ("system" or "rescue")) throw new InvalidOperationException("SSH 候选不是可管理的 ARMHPC OTA 设备。");
-            if (expected?.Managed == true && expected.DeviceId != id) throw new InvalidOperationException("设备 ID 不匹配，拒绝在此 IP 执行操作。");
+            if (expected?.Managed == true && expected.DeviceId != id) throw new DeviceIdentityMismatchException("设备 ID 不匹配，拒绝在此 IP 执行操作。");
             if (expected?.IgnoreFingerprint!=true && expected?.HostKeys.TryGetValue(mode, out string? pin) == true && pin != fingerprint)
-                throw new InvalidOperationException("当前环境的 SSH 主机密钥已改变。请单独核查后重新登记。");
+                throw new SshHostIdentityException("当前环境的 SSH 主机密钥已改变。请单独核查后重新登记。");
+            login.Verified(status);
             string hostname=Hostname(client);
             var network = operation == "status" ? NetworkMetadata.Read(client) : null;
+            if (expected is not null) NetworkReconnect.Remember(expected, endpoint, mode, network);
             cancellation.ThrowIfCancellationRequested();
-            JsonElement data = operation == "status" && arguments.Count == 0 ? (network?.Merge(status,hostname)??status) : Command(client, credentials, operation, arguments, yes);
+            JsonElement data = operation == "status" && arguments.Count == 0 ? (network?.Merge(status,hostname)??status) : Command(client, actualCredentials, operation, arguments, yes);
             return new RemoteResult(data, fingerprint, mode, hostname, network);
         }, cancellation); }
         catch (Exception) when (cancellation.IsCancellationRequested) { throw new OperationCanceledException(cancellation); }
@@ -50,7 +42,7 @@ public sealed partial class SshRunner
 
     private static TimeSpan DefaultCommandTimeout(string operation,IReadOnlyList<string> arguments)
         =>TimeSpan.FromMinutes(operation is "download" or "apply" or "bootstrap" or "recover" or "tools" ||
-            operation=="boot" && arguments.FirstOrDefault() is "plan" or "apply" or "rollback" or "restore" ? 60 : 3);
+            operation=="storage" || operation=="boot" && arguments.FirstOrDefault() is "plan" or "apply" or "rollback" or "restore" ? 60 : 3);
 
     private static JsonElement Command(SshClient client, Credentials credentials, string operation, IReadOnlyList<string> arguments, bool yes = false, TimeSpan? timeout=null)
     {
@@ -61,33 +53,20 @@ public sealed partial class SshRunner
         return Protocol.Decode(stdout);
     }
 
-    public async Task<Endpoint?> Reconnect(Device device, Credentials credentials, IReadOnlyList<string> ranges, CancellationToken cancellation = default, bool maintenance = false)
-    {
-        // First try the known address; scan only explicitly approved scopes if it has moved.
-        var original = new Endpoint(device.Address, device.Port);
-        try
+    public Task<Endpoint?> Reconnect(Device device, Credentials credentials, IReadOnlyList<string> ranges, CancellationToken cancellation = default, bool maintenance = false, Action<string>? progress = null)
+        => NetworkReconnect.Find(device, ranges, async (endpoint, discovered, token) =>
         {
-            if(maintenance) await MaintenanceStatus(original, credentials, device, cancellation);
-            else await Execute(original, credentials, device, "status", [], cancellation: cancellation);
-            return original;
-        }
-        catch (Exception) when (!cancellation.IsCancellationRequested) { }
-        foreach (string range in ranges)
-            foreach (Endpoint endpoint in await Scanner.Scan(range, device.Port, cancellation: cancellation))
+            var expected = discovered ? NetworkReconnect.DiscoveryIdentity(device) : device;
+            if (maintenance)
             {
-                if (endpoint == original) continue;
-                try
-                {
-                    // A fingerprint bypass only authorizes the explicitly selected address.
-                    // Discovery candidates still need a previously pinned key before authentication.
-                    var discovery=new Device{DeviceId=device.DeviceId,Transport=device.Transport,HostKeys=new(device.HostKeys)};
-                    // Unknown keys are rejected before credentials are sent.
-                    if(maintenance) await MaintenanceStatus(endpoint, credentials, discovery, cancellation);
-                    else await Execute(endpoint, credentials, discovery, "status", [], cancellation: cancellation);
-                    return endpoint;
-                }
-                catch (Exception) when (!cancellation.IsCancellationRequested) { }
+                var status = await MaintenanceStatus(endpoint, credentials, expected, token);
+                NetworkReconnect.Remember(device, endpoint, Protocol.Text(status, "mode"));
             }
-        return null;
-    }
+            else
+            {
+                var status = await Execute(endpoint, credentials, expected, "status", [], cancellation: token);
+                if (discovered) ValidateMaintenanceIdentity(expected,status.Data,status.Fingerprint);
+                NetworkReconnect.Remember(device, endpoint, status.Mode, status.Network);
+            }
+        }, cancellation, progress: progress, ready: Scanner.HasSshBanner);
 }

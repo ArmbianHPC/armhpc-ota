@@ -1,9 +1,19 @@
-# 自动升级
+# Automatic upgrades
 
-选择本地签名系统包及需要的工具维护包，认证设备并查询身份、版本、任务和空间。需要工具维护时先完成原维护任务，再继续系统升级。
+[简体中文](AUTOMATIC-UPGRADE.zh-CN.md)
 
-完整资源经 SSH/SFTP 或串口传输、续传并校验后，提交同一个持久请求。普通系统先重启到已确认 Rescue，再离线写 SATA 系统；Rescue 写备用槽后启动确认。DATA 与身份配置保留。
+Select a signed local system package and its maintenance package. Authenticate each device and check its identity, versions, tasks and available space. Complete any required tool maintenance before continuing the system upgrade.
 
-连接中断后查询原任务，不重复提交新写入请求。重新认证、换 IP 或 COM 接管均需核对持久设备 ID。设备服务独立于上位机窗口运行。
+Resources are transferred and resumed over SSH/SFTP or serial, verified, and submitted under the original persistent request ID. A normal system enters the confirmed Rescue environment before writing the SATA system. Rescue updates write the inactive slot and then confirm the new boot. DATA and the device identity are retained.
 
-日志保留 sequence、boot_id、monotonic_seconds 和设备时间质量，电脑接收时间单独显示。K3s 版本不会被系统 OTA 自动升级；业务维护由操作者安排。
+After a connection loss, query the original task. Reauthentication, address changes and COM takeover must verify the persistent device ID. Submitted device services run independently of the controller window.
+
+## Cancel a paused controller task
+
+In **Batch OTA**, select the devices and click **取消暂停任务** (Cancel paused tasks). Review the task IDs and confirm. Only paused controller automation is cancelled; submitted device operations continue. Cancellation does not roll back an update, stop a device service or cancel a device-side job.
+
+The original automation, maintenance and deployment IDs, package bindings, paused phase, last error and cancellation time remain in local storage. Click **自动流程历史** (Automatic task history) to view the selected devices' records, including cancelled tasks. History remains available after restarting the application. Cancelled flows are excluded from resume and no longer occupy the controller's active automation slot. A new operation still checks the device's actual task and maintenance state before submitting work.
+
+To request cancellation of a device-side OTA job before disk writing, use **写盘前取消** with the appropriate device task. This is a separate operation.
+
+Device events retain sequence, boot ID, monotonic time and clock quality. The controller reception time is displayed separately. System OTA does not automatically upgrade K3s.

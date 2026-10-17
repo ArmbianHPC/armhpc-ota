@@ -71,6 +71,11 @@ def build(output, work, source_ref='HEAD'):
     work.mkdir(parents=True, exist_ok=True)
     export_source(repo, commit, source_archive, checkout)
     version = (checkout / 'VERSION').read_text(encoding='utf-8').strip()
+    import ast
+    tree=ast.parse((checkout/'src/armhpc_ota/__init__.py').read_text(encoding='utf-8'))
+    revision=next((n.value.value for n in tree.body if isinstance(n,ast.Assign) and
+                  any(isinstance(t,ast.Name) and t.id=='__revision__' for t in n.targets) and isinstance(n.value,ast.Constant)),None)
+    if revision:version+='-'+revision
     root = work / ('armhpc-ota-cli-' + version)
     root.mkdir(parents=True)
     project = checkout / 'windows/ArmHpc.Ota.Cli/ArmHpc.Ota.Cli.csproj'

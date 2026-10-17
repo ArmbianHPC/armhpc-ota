@@ -24,6 +24,10 @@ DNS/mDNS 名称可能带 `.local` 或域名后缀，只作为发现信息。认�
 MAC 不替代设备 ID 或 SSH 身份。上位机 CLI 的 status 在可读取时增加 `mac_address`、
 `network_interfaces` 和 `hostname`，保留原有 protocol 1 字段。
 
+## 地址变化后的重连
+
+上位机记住已认证的 System／Rescue 地址及物理网口 MAC，重启后可寻找新的 DHCP 地址，再核对已登记 SSH 身份和原设备 ID。搜索范围、静态网络保留及跨路由说明见[网络重连与配置保留](NETWORK-RECONNECT.zh-CN.md)。
+
 ## 选择与删除
 
 支持勾选、Ctrl/Shift 多选、全选可见设备、反选和清空选择。
@@ -48,3 +52,12 @@ MAC 不替代设备 ID 或 SSH 身份。上位机 CLI 的 status 在可读取时
 
 Windows 默认及单台登录使用本地加密存储，CSV 不导出凭据。
 交互向导使用 SSH/串口终端，同一 COM 不同时交给多个终端占用。
+
+## 配套普通系统试启动恢复
+
+- 节点健康检查明确使用所选 K3s DATA 目录、配置和 CRI 配置。
+- 保留 CRI/API 就绪检查，对命令不可用、超时和无效结果返回有界、明确的错误。
+- 配套 System 已完整写入、启动健康确认失败时，允许在已确认的新 Rescue 中执行签名工具维护。
+- 使用 `armhpc-rescue ota boot resume-system --request-id <BOOT任务ID> --yes --json` 续跑原配套任务，保留任务 ID、配置快照、DATA 和失败历史；核验资源后重新启动验证，不重复写入根文件系统。
+
+续跑前先安装对应签名 maintenance 包，并查询原 BOOT 与 System 任务状态。其他 BOOT 活动阶段、未完成写入、磁盘或包变化、任务不匹配时继续拒绝执行。探针失败不会被当作就绪。

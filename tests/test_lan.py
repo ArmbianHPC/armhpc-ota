@@ -158,6 +158,66 @@ class MaintenanceTests(unittest.TestCase):
         root=self.root/'roots/system';p=root/'usr/lib/armhpc-ota/armhpc_ota/__init__.py';p.write_text('__version__="0.2.0"\n')
         maintenance.retain_installed_runtime(self.c,root)
         self.assertIn('0.3.0',p.read_text())
+    def test_equal_version_os_restore_keeps_the_explicitly_maintained_rebuild(self):
+        maintenance.schedule(self.e,self.bundle);maintenance.worker(self.e)
+        root=self.root/'roots/system'
+        marker=root/'usr/lib/armhpc-ota/armhpc_ota/__init__.py'
+        runner=root/'usr/lib/armhpc-ota/armhpc_ota/maintenance.py'
+        self.assertIn('0.3.0',marker.read_text())
+        runner.write_text('# older same-version payload')
+        maintenance.retain_installed_runtime(self.c,root)
+        self.assertEqual('# signed runner\n',runner.read_text())
+        record=maintenance.status(self.c)['maintenance']
+        self.assertEqual(64,len(record['bundle_sha256']))
+        self.assertEqual(64,len(record['runtime_sha256']))
+    def test_newer_os_runtime_is_not_downgraded_by_maintenance_retention(self):
+        maintenance.schedule(self.e,self.bundle);maintenance.worker(self.e)
+        root=self.root/'roots/system'
+        marker=root/'usr/lib/armhpc-ota/armhpc_ota/__init__.py'
+        marker.write_text('__version__="0.4.0"\n')
+        maintenance.retain_installed_runtime(self.c,root)
+        self.assertIn('0.4.0',marker.read_text())
+    def revision_bundle(self, revision):
+        runtime = self.root/'revised-runtime.tar.xz'
+        with tarfile.open(self.root/'runtime.tar.xz', 'r:xz') as old, tarfile.open(runtime, 'w:xz') as new:
+            for item in old:
+                data = old.extractfile(item).read()
+                if item.name.endswith('/src/armhpc_ota/__init__.py'):
+                    data += ('__revision__="' + revision + '"\n').encode()
+                item.size = len(data)
+                new.addfile(item, io.BytesIO(data))
+        return Path(tools_bundle(runtime, self.root/'revision-published', self.key, 'test')['bundle'])
+
+    def test_higher_os_revision_is_not_replaced_by_older_signed_maintenance(self):
+        maintenance.schedule(self.e,self.revision_bundle('r3'));maintenance.worker(self.e)
+        root=self.root/'roots/system'
+        marker=root/'usr/lib/armhpc-ota/armhpc_ota/__init__.py'
+        runner=root/'usr/lib/armhpc-ota/armhpc_ota/maintenance.py'
+        marker.write_text('__version__="0.3.0"\n__revision__="r4"\n')
+        runner.write_text('# newer image runtime')
+        maintenance.retain_installed_runtime(self.c,root)
+        self.assertIn('r4',marker.read_text())
+        self.assertEqual('# newer image runtime',runner.read_text())
+
+    def test_signed_newer_revision_replaces_equal_base_old_image(self):
+        maintenance.schedule(self.e,self.revision_bundle('r3'));maintenance.worker(self.e)
+        root=self.root/'roots/system'
+        marker=root/'usr/lib/armhpc-ota/armhpc_ota/__init__.py'
+        for revision in ('', '__revision__="r2"\n', '__revision__="r3"\n'):
+            marker.write_text('__version__="0.3.0"\n'+revision)
+            maintenance.retain_installed_runtime(self.c,root)
+            self.assertIn('r3',marker.read_text())
+
+    def test_unsigned_task_revision_cannot_override_signed_revision_order(self):
+        maintenance.schedule(self.e,self.revision_bundle('r3'));maintenance.worker(self.e)
+        record=maintenance.record(self.c);record['revision']='r99'
+        atomic_json(self.c.state/'maintenance/task.json',record)
+        root=self.root/'roots/system'
+        marker=root/'usr/lib/armhpc-ota/armhpc_ota/__init__.py'
+        marker.write_text('__version__="0.3.0"\n__revision__="r4"\n')
+        maintenance.retain_installed_runtime(self.c,root)
+        self.assertIn('r4',marker.read_text())
+
     def test_interruption_and_resume(self):
         maintenance.schedule(self.e,self.bundle);original=maintenance.backup_and_install;count=[0]
         def failure(*args):

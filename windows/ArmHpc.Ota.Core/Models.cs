@@ -16,6 +16,10 @@ public sealed class Device : INotifyPropertyChanged
     private string hostname="", hostnameSource="", macAddress="", networkDetail="";
     public string HostnameSource {get=>hostnameSource;set{hostnameSource=value;Changed();}}
     public string MacAddress {get=>macAddress;set{macAddress=value;Changed();}}
+    public string[] MacAddresses { get; set; } = [];
+    public KnownAddress[] KnownAddresses { get; set; } = [];
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string LastReconnectDetail { get; set; } = "";
     public string NetworkDetail {get=>networkDetail;set{networkDetail=value;Changed();}}
     public string Hostname {get=>hostname;set{hostname=value;Changed();}}
     private string lastCommand="",commandSummary="",commandDetail="";
@@ -55,7 +59,11 @@ public sealed class Device : INotifyPropertyChanged
     private void Changed([CallerMemberName] string? property = null) => PropertyChanged?.Invoke(this, new(property));
 }
 
-public sealed record Credentials(string Username, string Password, string? PrivateKeyPath = null, string? Passphrase = null);
+public sealed record Credentials(string Username, string Password, string? PrivateKeyPath = null, string? Passphrase = null)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public SshLoginContext? Ssh { get; init; }
+}
 public sealed record Endpoint(string Address, int Port = 22);
 public sealed record RemoteResult(JsonElement Data, string Fingerprint, string Mode, string Hostname="", NetworkSnapshot? Network=null);
 

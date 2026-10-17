@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import sys
 import time
-from . import __version__
+from . import __version__, __display_version__
 from .config import Config
 from .engine import Engine, public_job
 from .errors import OTAError, require
@@ -16,7 +16,7 @@ from . import bootstrap
 def parser():
     result = argparse.ArgumentParser(prog=os.environ.get('ARMHPC_OTA_PROG', 'armhpc ota'),
                                      description='ARMHPC signed dual-system network OTA')
-    result.add_argument('--version', action='version', version=__version__)
+    result.add_argument('--version', action='version', version=__display_version__)
     # Shared arguments are copied to subparsers so both placements work.
     def common(target, suppress=False):
         default = argparse.SUPPRESS if suppress else None
@@ -28,7 +28,7 @@ def parser():
                             help='Accept the displayed write/reboot plan without a prompt')
     common(result)
     sub = result.add_subparsers(dest='command', required=True,
-                               metavar='{bootstrap,check,plan,download,apply,status,logs,cancel,recover,source,doctor,retry,tools,receive}')
+                               metavar='{bootstrap,check,plan,download,apply,status,logs,cancel,recover,source,doctor,retry,tools,receive,storage}')
     for command in ('bootstrap', 'check', 'plan', 'download', 'apply', 'status', 'logs', 'cancel', 'recover'):
         child = sub.add_parser(command)
         common(child, True)
@@ -62,10 +62,14 @@ def parser():
     receive.add_argument('--manifest',required=True); receive.add_argument('--target',choices=('all','system','rescue'),default='all')
     receive.add_argument('--request-id',required=True);receive.add_argument('--phase',choices=('prepare','commit'),default='prepare')
     boot = sub.add_parser('boot'); common(boot, True)
-    boot.add_argument('action', choices=('plan', 'enter', 'apply', 'status', 'rollback', 'restore'))
+    boot.add_argument('action', choices=('plan', 'enter', 'apply', 'status', 'rollback', 'restore', 'resume-system'))
     boot.add_argument('--bundle'); boot.add_argument('--request-id')
     boot.add_argument('--exported-backup-sha256'); boot.add_argument('--commit', action='store_true')
     boot.add_argument('--execute',action='store_true',help='Restore the task-bound BOOT recovery image after preview')
+    storage = sub.add_parser('storage'); common(storage, True)
+    storage.add_argument('action', choices=('status', 'export', 'acknowledge', 'plan', 'cleanup', 'stage'))
+    storage.add_argument('--backup-id'); storage.add_argument('--inventory-sha256'); storage.add_argument('--archive-sha256')
+    storage.add_argument('--plan-id'); storage.add_argument('--item', action='append'); storage.add_argument('--bytes', type=int)
     # Private service operations are deliberately not extra public shell commands.
     internal = sub.add_parser('_service', help=argparse.SUPPRESS)
     common(internal, True)
@@ -93,15 +97,31 @@ def main(argv=None):
     try:
         config = Config.load(args.config, args.simulate_root)
         engine = Engine(config)
-        if args.command == 'boot':
+        if args.command == 'storage':
+            from . import storage as space
+            require(config.simulate or os.geteuid() == 0, 'root', 'Backup and storage management requires root')
+            if args.action == 'status': result = space.status(engine)
+            elif args.action == 'export': result = space.export(engine, args.backup_id)
+            elif args.action == 'acknowledge': result = space.acknowledge(engine, args.inventory_sha256, args.archive_sha256)
+            elif args.action == 'plan': result = space.cleanup_plan(engine)
+            elif args.action == 'stage': result = space.stage(engine, args.bytes)
+            else:
+                require(args.plan_id, 'storage_plan', 'Review a cleanup plan first')
+                approval(args, {'cleanup_plan_id': args.plan_id, 'items': args.item})
+                result = space.cleanup(engine, args.plan_id, args.item)
+        elif args.command == 'boot':
             from . import boot_maintenance as bm
             if args.action == 'status': result = bm.status(config)
             elif args.action == 'plan':
-                require(args.bundle, 'boot_bundle', 'Supply --bundle'); result = bm.plan(engine,args.bundle)
+                require(args.bundle, 'boot_bundle', 'Supply --bundle')
+                with engine.store.lock(): result = bm.plan(engine,args.bundle)
             elif args.action == 'enter':
                 require(args.bundle,'boot_bundle','Supply the verified firmware bundle before entering Rescue')
                 approval(args,{'reboot_to_confirmed_rescue':True,'request_id':args.request_id})
                 result=bm.enter(engine,args.bundle,args.request_id)
+            elif args.action == 'resume-system':
+                approval(args, {'resume_original_system_trial': True, 'request_id': args.request_id})
+                result = bm.resume_system(engine, args.request_id)
             elif args.action == 'restore':
                 from .boot_recovery import restore
                 result=restore(engine,args.request_id)

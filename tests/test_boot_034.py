@@ -70,6 +70,17 @@ class Boot034(unittest.TestCase):
         p=Path(r['backups']['BOOT-original.img']['path']).parent/'entries/boot.scr';p.write_text('corrupt')
         with self.assertRaisesRegex(OTAError,'entry changed'):boot.rollback(self.e,id)
         self.assertEqual((self.r/'roots/boot/boot.scr').read_text(),'known-good boot.scr')
+        self.assertEqual(boot.record(self.c)['stage'], 'backup-ready')
+
+    def test_missing_backup_preserves_task_stage_and_boot_entries(self):
+        id=str(uuid.uuid4());r=boot.apply(self.e,self.bundle,id)['task']
+        entry=Path(r['backups']['BOOT-original.img']['path']).parent/'entries/boot.scr'
+        entry.unlink()
+        with self.assertRaisesRegex(OTAError,'unavailable'):
+            boot.rollback(self.e,id)
+        self.assertEqual(boot.record(self.c)['stage'], 'backup-ready')
+        self.assertEqual((self.r/'roots/boot/boot.scr').read_text(),'known-good boot.scr')
+
     def test_active_root_and_board_mismatch_gate(self):
         d=read_json(self.r/'device.json');d['mode']='system';d['root']='/dev/sda1';atomic_json(self.r/'device.json',d)
         with self.assertRaisesRegex(OTAError,'confirmed Rescue'):boot.apply(self.e,self.bundle,str(uuid.uuid4()))
