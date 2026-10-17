@@ -45,7 +45,7 @@ class Engine:
                 'capabilities': {'idempotent_apply': True, 'offline_baselines': True,
                                  'interrupted_root_recovery': True, 'rescue_ab': True, 'push_import': True, 'local_only_apply': True,
                                  'serial_push': True, 'watchdog_diagnostics': True, 'boot_maintenance': True,
-                                 'normal_firmware_update': True, 'storage_management': True, 'firmware_system_resume': True,
+                                 'normal_firmware_update': True, 'storage_management': True, 'firmware_system_resume': True, 'multiple_boot_recovery_baselines': True,
                                  'direct_squashfs': self.config.board().get('rescue_fstype') == 'squashfs'},
                 'baselines': self._baseline_status(),
                 'versions': {name: control.get('confirmed', {}).get(name, {}).get('boot', {}).get('release') if control else None for name in ('system', 'rescue')},

@@ -154,6 +154,31 @@ def validate_initramfs(config, path, kernel_hash, dtb_hash):
                 'armhpc.boot-maintenance' in selector.read_text(), 'boot_selector', 'Missing recovery/candidate selector')
 
 
+def recovery_choices(manifest):
+    legacy = manifest['requires']
+    choices = [(legacy, 'recovery-initramfs')]
+    variants = manifest.get('recovery_variants', [])
+    require(isinstance(variants, list) and len(variants) <= 1,
+            'boot_recovery_variants', 'Invalid signed recovery baseline list')
+    for value in variants:
+        require(isinstance(value, dict) and set(value) == {'kernel_sha256', 'dtb_sha256', 'initramfs'} and
+                manifest.get('purpose') == 'firmware-update' and value['initramfs'] == 'initramfs' and
+                value['kernel_sha256'] == manifest['files']['kernel']['sha256'] and
+                value['dtb_sha256'] == manifest['files']['dtb']['sha256'],
+                'boot_recovery_variants', 'Additional recovery must use the signed candidate kernel/DTB/initramfs pair')
+        choices.append((value, value['initramfs']))
+    for value, _ in choices:
+        valid_sha(value['kernel_sha256']);valid_sha(value['dtb_sha256'])
+    return choices
+
+
+def select_recovery_initramfs(manifest, original):
+    for pair, name in recovery_choices(manifest):
+        if all(original[kind]['sha256'] == pair[kind + '_sha256'] for kind in ('kernel', 'dtb')):
+            return name
+    require(False, 'boot_baseline', 'No signed recovery baseline matches the confirmed Rescue kernel/DTB; select a compatible firmware package')
+
+
 def validate_bundle(engine, bundle):
     c = engine.config; b = c.board(); d = discover(c)
     path = Path(bundle).resolve(strict=True)
@@ -217,8 +242,9 @@ def validate_bundle(engine, bundle):
                     'boot_system_pair','System/BOOT pairing differs')
             atomic_copy(base/file,c.cache/a['sha256'])
     atomic_bytes(c.state/'manifests'/(rescue['release']+'.json'),(base/'rescue.manifest.json').read_bytes())
+    recoveries = recovery_choices(m)
     for name,kh,dh in [('initramfs',entries['kernel']['sha256'],entries['dtb']['sha256']),
-                       ('recovery-initramfs',m['requires']['kernel_sha256'],m['requires']['dtb_sha256'])]:
+                       *[(name, pair['kernel_sha256'], pair['dtb_sha256']) for pair, name in recoveries]]:
         with (base/name).open('rb') as f:require(f.read(4)!=bytes.fromhex('27051956'),'raw_initramfs','Raw initramfs required')
         validate_initramfs(c,base/name,kh,dh)
     if not c.simulate:
@@ -283,7 +309,13 @@ def save(c,task):atomic_json(c.state/'boot-maintenance/task.json',task)
 
 
 def backup(engine,storage,task,base):
-    c=engine.config;private=c.cache/'boot-backups'/task['task_id'];private.mkdir(parents=True,mode=0o700,exist_ok=True)
+    c=engine.config
+    signed=verify((base/'manifest.json').read_bytes(),c.trust)
+    recovery_name=select_recovery_initramfs(signed,task['original_boot'])
+    require(task.get('recovery_initramfs','recovery-initramfs')==recovery_name,
+            'boot_recovery_binding','The approved recovery baseline changed')
+    recovery_initramfs=base/recovery_name
+    private=c.cache/'boot-backups'/task['task_id'];private.mkdir(parents=True,mode=0o700,exist_ok=True)
     image=private/'BOOT-original.img'
     with boot_root(engine,storage) as root:
         for rel in boot_platform.entry_names(c.board()):
@@ -318,7 +350,7 @@ def backup(engine,storage,task,base):
                 try:
                     root=recovery if c.simulate else Path(temp);folder=root/'armhpc-recovery';folder.mkdir(exist_ok=True)
                     for name in ('kernel','dtb'):boot_platform.copy(c,c.state/task['original_boot'][name]['path'],folder/name)
-                    boot_platform.copy(c,base/'recovery-initramfs',folder/'initramfs')
+                    boot_platform.copy(c,recovery_initramfs,folder/'initramfs')
                     if not c.simulate:boot_platform.validate_load_window(c.board(),folder/'kernel',folder/'dtb',folder/'initramfs')
                     install_entries(c,root,'/armhpc-recovery',args(task['original_slot'],recovery=True,board=c.board()))
                     if not c.simulate:run('sync','-f',root)
@@ -343,7 +375,7 @@ def backup(engine,storage,task,base):
         task['recovery']={'protocol':1,'board':c.profile,'layout':c.board()['layout'],'anchor_abi':c.board()['anchor_abi'],
             'slot':task['original_slot'],'files':{name:{'sha256':sha256(path),'bytes':path.stat().st_size} for name,path in
             [('kernel',c.state/task['original_boot']['kernel']['path']),('dtb',c.state/task['original_boot']['dtb']['path']),
-             ('initramfs',base/'recovery-initramfs')]},'signed_manifest':read_json(base/'manifest.json')}
+             ('initramfs',recovery_initramfs)]},'signed_manifest':read_json(base/'manifest.json')}
     task['exports']=str(private/'EXPORT.json')
     atomic_json(task['exports'],{'protocol':1,'task_id':task['task_id'],'device_id':task['device_id'],
                 'emmc_cid_sha256':task.get('emmc_cid_sha256'),'recovery':task.get('recovery'),
@@ -378,18 +410,17 @@ def plan(engine,bundle):
     c=engine.config;d=discover(c);storage=layout(c,d,initialized=True);engine._require_shared_mount(storage)
     prepare_boot_cache(c,storage)
     m,rescue,base,digest=validate_bundle(engine,bundle);original=engine.store.control()['confirmed']['rescue']
-    require(original['boot']['kernel']['sha256']==m['requires']['kernel_sha256'] and
-            original['boot']['dtb']['sha256']==m['requires']['dtb_sha256'],'boot_baseline','Recovery differs from original Rescue')
+    recovery_name=select_recovery_initramfs(m,original['boot'])
     p=storage['partitions']['boot'];needed=p['size']*3+128*1024**2+sum(v['size'] for v in m['files'].values())
     if not c.simulate:
         candidate_bytes=sum(m['files'][k]['size'] for k in ('kernel','dtb','initramfs'))
-        recovery_bytes=sum((c.state/original['boot'][k]['path']).stat().st_size for k in ('kernel','dtb'))+m['files']['recovery-initramfs']['size']
+        recovery_bytes=sum((c.state/original['boot'][k]['path']).stat().st_size for k in ('kernel','dtb'))+m['files'][recovery_name]['size']
         require(shutil.disk_usage('/boot').free>=max(candidate_bytes,recovery_bytes)+16*1024**2,'boot_partition_space','BOOT lacks capacity for retained and candidate/recovery files')
     require(shutil.disk_usage(c.cache).free>=needed,'boot_space','No capacity for BOOT backup/recovery')
     return {'release':m['release'],'purpose':m.get('purpose','watchdog-diagnostic'),'sequence':m['sequence'],'device_id':d['device_id'],'mode':d['mode'],
             'boot':{'path':p['path'],'start_lba':p['start'],'sectors':p['size']//512},
             'inactive_slot':'b' if original['slot']=='a' else 'a','required_cache_bytes':needed,
-            'bundle':str(base/'bundle.tar.xz'),'bundle_sha256':digest,'original_slot':original['slot'],'recovery_export_required':True,'hardware_verified':False}
+            'bundle':str(base/'bundle.tar.xz'),'bundle_sha256':digest,'original_slot':original['slot'],'recovery_initramfs':recovery_name,'recovery_export_required':True,'hardware_verified':False}
 
 
 def enter(engine,bundle,request_id):

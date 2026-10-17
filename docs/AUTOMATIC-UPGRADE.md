@@ -17,3 +17,5 @@ The original automation, maintenance and deployment IDs, package bindings, pause
 To request cancellation of a device-side OTA job before disk writing, use **写盘前取消** with the appropriate device task. This is a separate operation.
 
 Device events retain sequence, boot ID, monotonic time and clock quality. The controller reception time is displayed separately. System OTA does not automatically upgrade K3s.
+
+A firmware package may sign recovery for the original kernel/DTB and its candidate pair. The device selects only an exact confirmed Rescue pair, validates the matching initramfs, and binds that selection to the private recovery export. Unknown pairs remain rejected before BOOT writes. Older archives without the signed alternative cannot acquire it from a tool update; select the rebuilt package.

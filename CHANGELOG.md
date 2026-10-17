@@ -1,3 +1,9 @@
+# v1.2.3-r11
+
+- Support signed firmware recovery from both the original and current Rescue kernel/DTB baselines.
+- Retain authenticated reconnection, per-environment login, controller-side backup compression and guarded task recovery.
+- Keep newer agent revisions during OS restoration and report the actual CLI build version.
+
 # v1.2.3-r10
 
 - Preserve newer image runtime revisions when retaining signed maintenance tools.
