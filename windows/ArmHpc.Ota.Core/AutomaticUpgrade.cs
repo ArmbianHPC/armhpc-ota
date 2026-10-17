@@ -176,7 +176,16 @@ public static class AutomaticUpgrade
                        Protocol.Text(current,"bundle_sha256")!=task.FirmwareSha256 || Protocol.Text(current,"purpose")!="firmware-update")
                         throw new InvalidOperationException("设备的原固件任务绑定改变。");
                     string stage=Protocol.Text(current,"stage");Stage("firmware:"+stage);
-                    if(stage=="committed")return true;
+                    if(stage=="committed")
+                    {
+                        if(!status.TryGetProperty("versions",out var versions) || versions.ValueKind!=JsonValueKind.Object)
+                            throw new InvalidOperationException("固件任务已提交，但设备未提供确认版本；原任务保留，尚未确认完整升级成功。");
+                        bool hasSystem=!string.IsNullOrEmpty(Protocol.Text(versions,"system")) ||
+                            (current.TryGetProperty("original_system",out var originalSystem) && originalSystem.ValueKind==JsonValueKind.Object);
+                        if(Protocol.Text(versions,"rescue")!=task.Release || (hasSystem && Protocol.Text(versions,"system")!=task.Release))
+                            throw new InvalidOperationException("固件任务已提交，但 Rescue 或配套普通系统仍为其他版本；请核对已确认版本并完成系统更新，原任务保留。");
+                        return true;
+                    }
                     if(stage=="rolled-back")return false;
                     if(stage=="failed-needs-recovery")throw new InvalidOperationException("固件任务需要恢复；请查询原 BOOT 任务后继续或回滚。");
                     if(stage=="updating-system" && status.TryGetProperty("job",out var systemJob) &&

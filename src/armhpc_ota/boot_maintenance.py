@@ -210,6 +210,8 @@ def validate_bundle(engine, bundle):
                 'boot_sequence','BOOT sequence must increase')
         require(parse_json(raw)['key_id'] in engine.store.control().get('anchor_key_ids',[]),'boot_key','Signer is not pinned')
         entries=m['files']
+        require(purpose!='firmware-update' or not engine.store.control()['confirmed'].get('system') or 'system-rootfs' in entries,
+                'normal_pairing','A normal firmware update needs the signed paired system payload')
         required_files={'kernel','dtb','initramfs','recovery-initramfs','rescue-rootfs','rescue.manifest.json'}
         require(set(entries) in (required_files,required_files|{'system-rootfs'}) and
                 set(names)=={'manifest.json',*entries},'boot_files','Incomplete/extra paired BOOT payload')
@@ -608,9 +610,8 @@ def commit_candidate(engine,task,storage):
         require(any(r.get('kind')=='panic' for r in records) and not c.simulate,'watchdog_acceptance','Real panic acceptance required')
     system=task.get('original_system')
     paired=not system or all(system['boot'][k]['sha256']==task['candidate_boot'][k]['sha256'] for k in ('kernel','dtb'))
-    if not paired:
-        bundle=verify((c.cache/'boot-maintenance'/task['bundle_sha256']/'manifest.json').read_bytes(),c.trust)
-        require('system-rootfs' in bundle['files'],'normal_pairing','Supply the signed paired system payload before BOOT commit')
+    if system and (firmware_update(task) or not paired):
+        require('system-rootfs' in signed['files'],'normal_pairing','Supply the signed paired system payload before BOOT commit')
         if not firmware_update(task):task['watchdog_checks_completed']=True
         task['stage']='preparing-system';save(c,task)
         return begin_paired_system(engine,task,storage)

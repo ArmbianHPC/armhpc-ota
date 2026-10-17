@@ -10,7 +10,7 @@ from pathlib import Path
 from armhpc_ota import boot_maintenance as boot
 from armhpc_ota.errors import OTAError
 from armhpc_ota.io import read_json
-from armhpc_ota.metadata import sign
+from armhpc_ota.metadata import sign, verify
 from support import boot_fixture
 import test_oesp_boot_maintenance as fixtures
 
@@ -42,6 +42,49 @@ class FirmwareUpdate(unittest.TestCase):
         self.assertFalse(task['internal_watchdog_passed'])
         self.assertFalse(task['firmware_boot_verified'])
         self.assertEqual((self.r/'data/keep.txt').read_text(),'DATA-MUST-NOT-CHANGE')
+
+    def test_unchanged_kernel_pair_still_deploys_the_new_signed_system(self):
+        bundle = self.paired_bundle('firmware-update')
+        control = self.e.store.control()
+        original = control['confirmed']['system']['boot']
+        with tarfile.open(bundle, 'r:xz') as archive:
+            manifest = verify(archive.extractfile('rescue.manifest.json').read(), self.c.trust)
+            for name in ('kernel', 'dtb'):
+                raw = archive.extractfile(name).read()
+                (self.c.state/original[name]['path']).write_bytes(raw)
+                artifact = next(a for a in manifest['artifacts'] if a['role'] == 'rescue-'+name)
+                original[name]['sha256'] = artifact['sha256']
+        original_release = original['release']
+        self.e.store.write_control(control)
+        task_id = str(uuid.uuid4())
+        task = boot.apply(self.e, bundle, task_id)['task']
+        task = boot.apply(self.e, request_id=task_id,
+                          exported=task['backups']['BOOT-rescue.img.xz']['sha256'])['task']
+        boot_fixture(self.c, 'rescue', task['inactive_slot'], kernel='6.12.111-old')
+        self.e.confirm()
+        task = boot.record(self.c)
+        self.assertEqual('updating-system', task['stage'])
+        self.assertEqual(original_release, self.e.status()['versions']['system'])
+        self.assertNotEqual(task['release'], original_release)
+        job = self.e.worker()
+        self.assertEqual('trial-system', job['stage'])
+        boot_fixture(self.c, 'system', kernel='6.12.111-old')
+        self.assertEqual('succeeded', self.e.confirm()['stage'])
+        self.assertEqual('committed', boot.record(self.c)['stage'])
+        self.assertEqual(task['release'], self.e.status()['versions']['system'])
+        self.assertEqual('DATA-MUST-NOT-CHANGE', (self.r/'data/keep.txt').read_text())
+
+    def test_missing_system_payload_is_rejected_before_a_boot_task_is_created(self):
+        from armhpc_ota.boot_publish import build
+        bundle = self.r/'rescue-only-firmware.tar.xz'
+        build(self.manifest_path,self.files['rootfs'],self.files['kernel'],self.files['dtb'],
+              self.files['initramfs'],self.recovery,bundle,self.key,'test',self.c.trust,1,
+              self.c.state/self.old['kernel']['path'],self.c.state/self.old['dtb']['path'],purpose='firmware-update')
+        with self.assertRaises(OTAError) as caught:
+            boot.plan(self.e, bundle)
+        self.assertEqual('normal_pairing', caught.exception.code)
+        self.assertIsNone(boot.record(self.c))
+        self.assertEqual('known-good boot.scr', (self.r/'roots/boot/boot.scr').read_text())
 
     def test_task_journal_cannot_change_a_diagnostic_signature_into_firmware_acceptance(self):
         task_id=str(uuid.uuid4())
@@ -90,6 +133,11 @@ class FirmwareUpdate(unittest.TestCase):
     def test_semantic_minimum_agent_comparison(self):
         self.assertLess(boot.version_tuple('1.2.1'),boot.version_tuple('1.2.10'))
         with self.assertRaises(OTAError):boot.version_tuple('1.3')
+
+
+class OectFirmwareUpdate(FirmwareUpdate):
+    from test_boot_034 import Boot034
+    setUp = Boot034.setUp
 
 
 class RestoredServiceHealth(unittest.TestCase):

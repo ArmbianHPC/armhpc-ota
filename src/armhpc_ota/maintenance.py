@@ -283,6 +283,9 @@ def backup_and_install(engine, task, role, root, files):
             require(sha256(root/relative) == sha256(source), 'tools_install_hash', 'Installed runtime file differs from signed package')
         engine.backend.configure_shared_mount(root, layout(c, discover(c), initialized=True))
         atomic_json(root/'etc/armhpc/ota-runtime.json', {'version': task['version'], 'maintenance': task['task_id']})
+    if role == 'system':
+        from .framework_catalog import rebase
+        rebase(engine, layout(c, discover(c), initialized=True), root, files, backup, task['rollback'])
     if has_clock:
         from .clock_resources import configure_links
         configure_links(root, backup, task['rollback'])

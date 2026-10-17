@@ -1,3 +1,9 @@
+# v1.2.3-r12
+
+- Deploy the paired normal system during firmware updates even when the kernel and DTB are unchanged.
+- Migrate registered framework code to authenticated maintenance resources with interruption recovery and paired rollback.
+- Confirm both installed environment versions before reporting a complete firmware upgrade.
+
 # v1.2.3-r11
 
 - Support signed firmware recovery from both the original and current Rescue kernel/DTB baselines.
