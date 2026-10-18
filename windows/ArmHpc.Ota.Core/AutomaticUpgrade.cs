@@ -100,6 +100,14 @@ public sealed class UpgradeConnection(ConnectionRouter router,Device device,Cred
 /// <summary>Host orchestration only. All signature, disk, trial and recovery decisions use the device CLI.</summary>
 public static class AutomaticUpgrade
 {
+    public static AutomaticTask? PendingMaintenance(IEnumerable<AutomaticTask> tasks,string deviceId)
+    {
+        var pending=tasks.Where(t=>t.DeviceId==deviceId && !t.Terminal).ToArray();
+        if(pending.Any(t=>!t.Options.ToolsOnly && !(t.Stage=="paused" && t.Kind=="firmware-update" && t.Release is not null)))
+            throw new InvalidOperationException("请先继续已有系统升级任务，或等待当前设备操作结束。");
+        return pending.FirstOrDefault(t=>t.Options.ToolsOnly);
+    }
+
     public static bool NeedsBundledMaintenance(JsonElement status,UpgradeOptions options,string? bundledDigest=null)
     {
         if(options.BundleSha256 is null)return false;

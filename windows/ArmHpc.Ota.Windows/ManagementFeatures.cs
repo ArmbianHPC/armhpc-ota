@@ -206,8 +206,7 @@ public partial class MainWindow
         string[] ranges=string.IsNullOrWhiteSpace(ScanRange.Text)?[]:[ScanRange.Text.Trim()];foreach(string range in ranges)Scanner.Expand(range);
         await RunSelected("自动更新 OTA 工具",selected,true,async d=>
         {
-            var existing=automaticTasks.FirstOrDefault(t=>t.DeviceId==d.DeviceId && !t.Terminal);
-            if(existing is not null && !existing.Options.ToolsOnly)throw new InvalidOperationException("请先继续已有系统升级任务。");
+            var existing=AutomaticUpgrade.PendingMaintenance(automaticTasks,d.DeviceId);
             AutomaticTask task;
             if(existing is null)
             {

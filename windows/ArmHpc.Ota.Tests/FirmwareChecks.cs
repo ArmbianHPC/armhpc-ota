@@ -46,6 +46,17 @@ public static class FirmwareChecks
             try{await AutomaticUpgrade.Run(task with{Release="firmware-1.2.1",Kind="firmware-update",FirmwareBundle="/cache/bundle",FirmwareSha256=FirmwareConnection.Hash},missingSoftware,_=>{},_=>{},delay:_=>Task.CompletedTask,jobPolls:2);}
             catch(InvalidOperationException error){detailedFailure=error.Message.Contains("software_resources") && error.Message.Contains("ipvsadm=1:1.31-1") && error.Message.Contains("尚未写盘");}
             check(detailedFailure && missingSoftware.FlashCount==0,"firmware pause reports the exact software error and prewrite boundary without resubmitting");
+            var pausedFirmware=task with{Stage="paused",Kind="firmware-update",Release="firmware-1.2.1"};
+            check(AutomaticUpgrade.PendingMaintenance(new[]{pausedFirmware},"device") is null && pausedFirmware.Stage=="paused",
+                  "explicit tool maintenance can start beside a paused firmware observer without cancelling its history");
+            var toolObserver=AutomaticTask.Create("device",new("",Bundle:package,ToolsOnly:true));
+            check(AutomaticUpgrade.PendingMaintenance(new[]{pausedFirmware,toolObserver},"device")==toolObserver,
+                  "a pending maintenance observer is reused while the original firmware observer remains retained");
+            foreach(string phase in new[]{"created","maintaining","firmware:deploying-rescue"})
+                refused(()=>AutomaticUpgrade.PendingMaintenance(new[]{pausedFirmware with{Stage=phase}},"device"),
+                        "tool maintenance cannot run beside an active firmware operation: "+phase);
+            refused(()=>AutomaticUpgrade.PendingMaintenance(new[]{pausedFirmware with{Kind="ota"}},"device"),
+                    "unrelated paused system tasks do not acquire the firmware maintenance exception");
             var failedExport=new FirmwareConnection{FailExport=true};bool exportFailed=false;
             try{await AutomaticUpgrade.Run(AutomaticTask.Create("device",new("",Package:package)),failedExport,_=>{},_=>{},delay:_=>Task.CompletedTask,jobPolls:8);}
             catch(IOException){exportFailed=true;}
