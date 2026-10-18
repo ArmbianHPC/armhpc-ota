@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
-from .backend import Backend, _prepare_chroot_null, _staged_debs, verify_software_plan
+from .backend import Backend, _prepare_chroot_null, _staged_debs, verify_software_plan, software_install_arguments
 from . import preserve
 from .device import discover, layout, run
 from .errors import require
@@ -75,7 +75,7 @@ class SquashFSBackend(Backend):
                         run('chroot', root, '/usr/sbin/sshd', '-t')
                         if inventory.get('debs'):
                             with _staged_debs(root, Path(snapshot) / 'debs', inventory['debs']) as arguments:
-                                simulation = run('chroot', root, 'apt-get', '-s', '--no-remove', 'install', *arguments)
+                                simulation = run('chroot', root, *software_install_arguments(arguments, simulate=True))
                                 available = {(run('dpkg-deb', '-f', Path(snapshot) / 'debs' / d['file'], 'Package'),
                                               run('dpkg-deb', '-f', Path(snapshot) / 'debs' / d['file'], 'Version')) for d in inventory['debs']}
                                 verify_software_plan(simulation, available)

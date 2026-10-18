@@ -41,6 +41,11 @@ public static class FirmwareChecks
                 check(rejected && held?.Stage=="paused" && !held.Terminal && mismatch.FlashCount==0,
                       "a committed BOOT task cannot report full success with unconfirmed "+incomplete+" versions");
             }
+            var missingSoftware=new FirmwareConnection{Id=task.JobId,Stage="updating-system",Mode="rescue",Frozen=true,FailedSystem=true};
+            bool detailedFailure=false;
+            try{await AutomaticUpgrade.Run(task with{Release="firmware-1.2.1",Kind="firmware-update",FirmwareBundle="/cache/bundle",FirmwareSha256=FirmwareConnection.Hash},missingSoftware,_=>{},_=>{},delay:_=>Task.CompletedTask,jobPolls:2);}
+            catch(InvalidOperationException error){detailedFailure=error.Message.Contains("software_resources") && error.Message.Contains("ipvsadm=1:1.31-1") && error.Message.Contains("尚未写盘");}
+            check(detailedFailure && missingSoftware.FlashCount==0,"firmware pause reports the exact software error and prewrite boundary without resubmitting");
             var failedExport=new FirmwareConnection{FailExport=true};bool exportFailed=false;
             try{await AutomaticUpgrade.Run(AutomaticTask.Create("device",new("",Package:package)),failedExport,_=>{},_=>{},delay:_=>Task.CompletedTask,jobPolls:8);}
             catch(IOException){exportFailed=true;}
@@ -65,10 +70,10 @@ public static class FirmwareChecks
     {
         public const string Hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         public string? Id,Stage;public string Mode="system";public int EnterCount,Exports,FlashCount,Pushes,MaintenanceQueries;
-        public bool LoseSwitchReply,FailExport,Frozen,OmitVersions;
+        public bool LoseSwitchReply,FailExport,Frozen,OmitVersions,FailedSystem;
         public string SystemRelease="firmware-1.2.1",RescueRelease="firmware-1.2.1";
         object? TaskRecord()=>Id is null?null:new{task_id=Id,device_id="device",release="firmware-1.2.1",purpose="firmware-update",
-            bundle_sha256=Hash,stage=Stage,backups=new Dictionary<string,object>{{"BOOT-rescue.img.xz",new{sha256=Hash}}}};
+            bundle_sha256=Hash,stage=Stage,system_job_id="paired-system",backups=new Dictionary<string,object>{{"BOOT-rescue.img.xz",new{sha256=Hash}}}};
         public Task<JsonElement> Command(string command,IReadOnlyList<string> arguments,bool yes,CancellationToken token)
         {
             if(command=="status")
@@ -78,7 +83,7 @@ public static class FirmwareChecks
                     if(Stage=="awaiting-firmware")Stage="updating-system";
                     else if(Stage=="updating-system"){Stage="committed";Mode="system";}
                 }
-                return Task.FromResult(J(new{device_id="device",mode=Mode,agent_version="1.2.1",bootstrapped=true,job=(object?)null,boot_maintenance=new{task=TaskRecord()},versions=OmitVersions?null:new{system=SystemRelease,rescue=RescueRelease}}));
+                return Task.FromResult(J(new{device_id="device",mode=Mode,agent_version="1.2.1",bootstrapped=true,job=FailedSystem?(object)new{job_id="paired-system",stage="failed-recoverable",write_started=false,error=new{code="software_resources",message="Offline software resources missing: ipvsadm=1:1.31-1"}}:null,boot_maintenance=new{task=TaskRecord()},versions=OmitVersions?null:new{system=SystemRelease,rescue=RescueRelease}}));
             }
             if(command=="boot" && arguments[0]=="enter"){EnterCount++;Mode="rescue";return Task.FromResult(J(new{device_id="device"}));}
             if(command=="boot" && arguments[0]=="apply")

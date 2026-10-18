@@ -82,4 +82,54 @@ class PairedSystemRepair(unittest.TestCase):
         self.assertEqual(self.e.store.read(),job_before);self.assertEqual(self.e.store.control(),control_before)
 
 
+class PairedSystemPrecheckRepair(PairedSystemRepair):
+    def paused(self):
+        task_id=str(uuid.uuid4())
+        task=boot.apply(self.e,self.paired_bundle('firmware-update'),task_id)['task']
+        task=boot.apply(self.e,request_id=task_id,exported=task['backups']['BOOT-rescue.img.xz']['sha256'])['task']
+        boot_fixture(self.c,'rescue',task['inactive_slot'],kernel='6.12.111-old')
+        self.e.confirm()
+        with mock.patch.object(self.e.backend,'validate_payloads',side_effect=OTAError('software_resources','Offline software resources missing: ipvsadm=1:1.31-1')):
+            self.e.worker()
+        self.assertFalse(self.e.store.read()['write_started'])
+        self.assertEqual(self.e.store.read()['stage'],'failed-recoverable')
+        return boot.record(self.c)
+
+    def test_same_job_retrials_without_rootfs_rewrite_and_commits_after_health(self):
+        task=self.paused();before=self.e.store.read();control=self.e.store.control()
+        data=(self.r/'data/keep.txt').read_bytes()
+        self.assertEqual(boot.paused_system_binding(self.e)['system_job_id'],before['job_id'])
+        boot.resume_system(self.e,task['task_id'])
+        job=self.e.store.read()
+        self.assertEqual(job['job_id'],before['job_id']);self.assertEqual(job['stage'],'queued')
+        self.assertEqual(job['snapshot'],before['snapshot'])
+        self.assertEqual(job['preflight_failures'][0]['error'],before['error'])
+        self.assertEqual(self.e.store.control(),control)
+        with mock.patch.object(self.e.backend,'write_image',wraps=self.e.backend.write_image) as write:
+            self.e.worker()
+            self.assertEqual(write.call_count,1)
+        self.assertEqual(self.e.store.read()['stage'],'trial-system')
+        boot_fixture(self.c,'system',kernel='6.12.111-old');self.e.confirm()
+        self.assertEqual(self.e.store.read()['stage'],'succeeded')
+        self.assertEqual(boot.record(self.c)['stage'],'committed')
+        self.assertEqual((self.r/'data/keep.txt').read_bytes(),data)
+
+    def test_incomplete_write_nonhealth_failure_and_wrong_slot_remain_blocked(self):
+        task=self.paused();job=self.e.store.read()
+        for change in ({'write_started':True},{'checkpoints':['system-written']},
+                       {'error':{'code':'payload_hash'}},{'stage':'queued'}):
+            self.e.store.save({**job,**change})
+            with self.assertRaises(OTAError):boot.paused_system_binding(self.e)
+            self.e.store.save(job)
+        boot_fixture(self.c,'rescue',task['original_slot'],kernel='6.12.111-old')
+        with self.assertRaises(OTAError):boot.paused_system_binding(self.e)
+
+    def test_changed_payload_cannot_requeue_before_write(self):
+        task=self.paused();before=self.e.store.read()
+        artifact=next(a for a in before['manifest']['artifacts'] if a['role']=='system-rootfs')
+        (self.c.cache/artifact['sha256']).write_bytes(b'changed')
+        with self.assertRaises(OTAError):boot.resume_system(self.e,task['task_id'])
+        self.assertEqual(self.e.store.read(),before)
+
+
 if __name__=='__main__':unittest.main()
