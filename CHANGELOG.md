@@ -1,3 +1,9 @@
+# v1.2.4-r1
+
+- Restore installed software with consistent offline dependency rules without adding recommendations.
+- Report missing package versions and whether the paired system has started disk writing.
+- Update signed maintenance and resume the original firmware task after a software precheck failure.
+
 # v1.2.3-r12
 
 - Deploy the paired normal system during firmware updates even when the kernel and DTB are unchanged.

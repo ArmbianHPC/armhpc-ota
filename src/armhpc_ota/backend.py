@@ -15,13 +15,29 @@ import time
 import re
 
 
+def software_install_arguments(packages, *, simulate=False):
+    """Restore selected software without adding previously absent recommendations."""
+    options = ['apt-get', '--no-remove', '--no-install-recommends']
+    options += ['-s'] if simulate else ['-o', 'Dpkg::Use-Pty=0', '-y', '--no-download']
+    return [*options, 'install', *packages]
+
+
 def verify_software_plan(simulation, available):
-    """APT simulation may choose repository dependencies without proving they are cached."""
+    """Require every package selected by APT to have an exact local resource."""
+    missing = []
     for line in simulation.splitlines():
         if line.startswith('Inst '):
             match = re.match(r'Inst\s+(\S+)(?:\s+\[[^]]+\])?\s+\((\S+)', line)
-            require(match and (match[1].split(':')[0], match[2]) in available,
-                    'software_resources', 'Offline software plan needs a package/version not present in the prepared resources')
+            require(match, 'software_resources', 'Could not parse the offline APT installation plan',
+                    reason='unparsed_install', package=line.split('(', 1)[0][:160])
+            name, version = match[1].split(':')[0], match[2]
+            if (name, version) not in available:
+                item = {'package': name, 'version': version}
+                if item not in missing:
+                    missing.append(item)
+    require(not missing, 'software_resources',
+            'Offline software resources missing: ' + ', '.join(p['package'] + '=' + p['version'] for p in missing),
+            missing_packages=missing)
 
 
 def _prepare_chroot_null(root):
@@ -217,8 +233,7 @@ class Backend:
             if not self.config.simulate and inventory.get('debs'):
                 resources = Path(snapshot) / 'debs'
                 with _staged_debs(root, resources, inventory['debs']) as arguments:
-                    run('chroot', root, 'apt-get', '-o', 'Dpkg::Use-Pty=0', '-y', '--no-download', '--no-remove',
-                        'install', *arguments)
+                    run('chroot', root, *software_install_arguments(arguments))
             if not self.config.simulate:
                 for service in inventory.get('enabled_services', []):
                     require(service in ('k3s.service', 'k3s-agent.service'), 'service', 'Unsupported preserved service')
@@ -418,8 +433,8 @@ class Backend:
                                     require(sha256(resources / item['file']) == item['sha256'], 'software_hash', 'Software resource changed')
                                     shutil.copy2(resources / item['file'], temporary / item['file'])
                                 # Simulation never fetches packages. --no-download rejects unstaged local .debs in Bookworm.
-                                simulation = run('chroot', root, 'apt-get', '-s', '--no-remove', 'install',
-                                    *['/var/tmp/armhpc-ota-debs/' + item['file'] for item in inventory['debs']])
+                                simulation = run('chroot', root, *software_install_arguments(
+                                    ['/var/tmp/armhpc-ota-debs/' + item['file'] for item in inventory['debs']], simulate=True))
                                 available = {(run('dpkg-deb', '-f', temporary / item['file'], 'Package'),
                                               run('dpkg-deb', '-f', temporary / item['file'], 'Version')) for item in inventory['debs']}
                                 verify_software_plan(simulation, available)

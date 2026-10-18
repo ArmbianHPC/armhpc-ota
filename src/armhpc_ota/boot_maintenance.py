@@ -52,7 +52,7 @@ def require_idle(config, diagnostic=False, job_id=None):
 
 
 def paused_system_binding(engine):
-    """Admit userland repair only for this firmware's fully written failed trial."""
+    """Bind userland repair to a failed precheck or a fully written firmware trial."""
     task = record(engine.config)
     if not task or task['stage'] in DONE:
         return None
@@ -63,13 +63,15 @@ def paused_system_binding(engine):
     require(job and latest and latest['job_id'] == job['job_id'] and
             job['job_id'] == task.get('system_job_id') and job['kind'] == 'boot-maintenance-system' and
             job['release'] == task['release'] and job['device_id'] == task['device_id'] and
-            job['target'] == 'system' and job['stage'] == 'failed-recoverable' and
-            job.get('write_started') and 'system-written' in job['checkpoints'] and
-            'system-health-passed' not in job['checkpoints'],
-            'boot_system_repair', 'Only the original fully written failed system trial can be repaired')
+            job['target'] == 'system' and job['stage'] == 'failed-recoverable',
+            'boot_system_repair', 'Repair requires the original failed paired system job')
     code = job.get('error', {}).get('code', '')
-    require(code.startswith('health_') or code == 'trial_failed',
-            'boot_system_repair', 'This failure requires deployment recovery before userland repair')
+    before_write = not job.get('write_started') and not job['checkpoints'] and code == 'software_resources'
+    written_trial = (job.get('write_started') and 'system-written' in job['checkpoints'] and
+                     'system-health-passed' not in job['checkpoints'] and
+                     (code.startswith('health_') or code == 'trial_failed'))
+    require(before_write or written_trial,
+            'boot_system_repair', 'Repair requires a software precheck failure or a fully written failed system trial')
     device, storage, control = engine._recheck(job)
     require(acceptance_complete(task) and task.get('ordinary_boot_healthy') and
             device['mode'] == 'rescue' and device['kernel'] == task['candidate_boot']['kernel_release'] and
@@ -106,26 +108,40 @@ def resume_system(engine, request_id):
         require(binding is not None, 'boot_system_repair', 'No paused paired system trial')
         job = engine.store.read(binding['system_job_id'])
         _, storage, control = engine._recheck(job)
-        candidate = job.get('system_candidate', {}).get('boot', {})
-        require(candidate and candidate.get('release') == task['release'] and
-                all(candidate.get(k, {}).get('sha256') == task['candidate_boot'][k]['sha256'] for k in ('kernel', 'dtb')),
-                'boot_system_binding', 'The written system candidate differs from the firmware pair')
-        engine.backend.verify_resources(job)
-        if not c.simulate:
-            with engine.backend.mount(storage['partitions']['system']) as root:
-                marker = read_json(root / 'etc/armhpc/release.json')
-                require(marker.get('release') == task['release'] and marker.get('target') == 'system' and
-                        marker.get('kernel') == candidate['kernel_release'],
-                        'boot_system_binding', 'The written system release marker differs')
-        history = list(job.get('trial_failures', []))
-        history.append({'error': job.get('error'), 'updated': job.get('updated')})
-        job.pop('error', None)
-        # Keep system-written, configuration snapshots and the original persistent IDs.
-        # The worker verifies resources and starts a new trial without writing rootfs again.
-        engine.store.save(job, 'ready', 'Resuming the original written system after explicit userland repair',
-                          trial_failures=history[-32:], resume_count=job.get('resume_count', 0) + 1)
+        if not job.get('write_started'):
+            engine.backend.verify_resources(job)
+            history = list(job.get('preflight_failures', []))
+            history.append({'error': job.get('error'), 'updated': job.get('updated')})
+            job.pop('error', None)
+            engine.store.save(job, 'queued', 'Resuming the original system precheck after explicit tool repair',
+                              preflight_failures=history[-32:], resume_count=job.get('resume_count', 0) + 1)
+        else:
+            _resume_written_system(engine, task, job, storage)
     engine.backend.start_service()
     return status(c)
+
+
+def _resume_written_system(engine, task, job, storage):
+    c = engine.config
+    candidate = job.get('system_candidate', {}).get('boot', {})
+    require(candidate and candidate.get('release') == task['release'] and
+            all(candidate.get(k, {}).get('sha256') == task['candidate_boot'][k]['sha256'] for k in ('kernel', 'dtb')),
+            'boot_system_binding', 'The written system candidate differs from the firmware pair')
+    engine.backend.verify_resources(job)
+    if not c.simulate:
+        with engine.backend.mount(storage['partitions']['system']) as root:
+            marker = read_json(root / 'etc/armhpc/release.json')
+            require(marker.get('release') == task['release'] and marker.get('target') == 'system' and
+                    marker.get('kernel') == candidate['kernel_release'],
+                    'boot_system_binding', 'The written system release marker differs')
+    history = list(job.get('trial_failures', []))
+    history.append({'error': job.get('error'), 'updated': job.get('updated')})
+    job.pop('error', None)
+    # Keep system-written, configuration snapshots and the original persistent IDs.
+    # The worker verifies resources and starts a new trial without writing rootfs again.
+    engine.store.save(job, 'ready', 'Resuming the original written system after explicit userland repair',
+                      trial_failures=history[-32:], resume_count=job.get('resume_count', 0) + 1)
+
 
 
 def stream_copy(src, dest, size):

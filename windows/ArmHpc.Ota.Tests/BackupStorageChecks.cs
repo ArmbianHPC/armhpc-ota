@@ -63,11 +63,12 @@ public static class BackupStorageChecks
             {zip.GetEntry("files/BOOT-original.img")!.Delete();using var stream=zip.CreateEntry("files/BOOT-original.img").Open();stream.Write(new byte[]{1});}
             refused(()=>BackupArchive.VerifyArchive(result.Archive,inventory),"archive readback detects corrupted compressed backup bytes");
             var bundled=new UpgradeOptions("",BundleSha256:new string('a',64));
+            string core=BuildIdentity.CoreVersion;var currentVersion=Version.Parse(core);string newer=new Version(currentVersion.Major,currentVersion.Minor,currentVersion.Build+1).ToString(3);
             JsonElement Agent(string version,string revision)=>JsonSerializer.SerializeToElement(new{agent_version=version,agent_revision=revision});
-            check(AutomaticUpgrade.NeedsBundledMaintenance(Agent("1.2.3",""),bundled,new string('a',64)),"bundled same-version rebuild updates an agent lacking revision metadata");
-            check(!AutomaticUpgrade.NeedsBundledMaintenance(Agent("1.2.3",BuildIdentity.DisplayVersion.Split("-").Last()),bundled,new string('a',64)),"matching build revision does not repeat maintenance");
-            check(!AutomaticUpgrade.NeedsBundledMaintenance(Agent("1.2.3","r"+(int.Parse(BuildIdentity.DisplayVersion.Split('-').Last()[1..])+1)),bundled,new string('a',64)) && !AutomaticUpgrade.NeedsBundledMaintenance(Agent("1.2.4",""),bundled,new string('a',64)),"bundled maintenance never downgrades a newer revision or agent version");
-            check(!AutomaticUpgrade.NeedsBundledMaintenance(Agent("1.2.3",""),bundled,new string('b',64)),"arbitrary selected bundles do not inherit the embedded revision policy");
+            check(AutomaticUpgrade.NeedsBundledMaintenance(Agent(core,""),bundled,new string('a',64)),"bundled same-version rebuild updates an agent lacking revision metadata");
+            check(!AutomaticUpgrade.NeedsBundledMaintenance(Agent(core,BuildIdentity.DisplayVersion.Split("-").Last()),bundled,new string('a',64)),"matching build revision does not repeat maintenance");
+            check(!AutomaticUpgrade.NeedsBundledMaintenance(Agent(core,"r"+(int.Parse(BuildIdentity.DisplayVersion.Split('-').Last()[1..])+1)),bundled,new string('a',64)) && !AutomaticUpgrade.NeedsBundledMaintenance(Agent(newer,""),bundled,new string('a',64)),"bundled maintenance never downgrades a newer revision or agent version");
+            check(!AutomaticUpgrade.NeedsBundledMaintenance(Agent(core,""),bundled,new string('b',64)),"arbitrary selected bundles do not inherit the embedded revision policy");
             check(Commands.Build("storage",["cleanup","--plan-id",new string('a',64)],true,true).Contains("'cleanup'"),"storage cleanup uses the authenticated public CLI and approval flag");
             refused(()=>Commands.Build("storage",["delete","--path","/"],true,true),"arbitrary remote deletion is not exposed");
         }

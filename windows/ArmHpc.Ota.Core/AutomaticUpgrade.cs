@@ -100,6 +100,14 @@ public sealed class UpgradeConnection(ConnectionRouter router,Device device,Cred
 /// <summary>Host orchestration only. All signature, disk, trial and recovery decisions use the device CLI.</summary>
 public static class AutomaticUpgrade
 {
+    public static AutomaticTask? PendingMaintenance(IEnumerable<AutomaticTask> tasks,string deviceId)
+    {
+        var pending=tasks.Where(t=>t.DeviceId==deviceId && !t.Terminal).ToArray();
+        if(pending.Any(t=>!t.Options.ToolsOnly && !(t.Stage=="paused" && t.Kind=="firmware-update" && t.Release is not null)))
+            throw new InvalidOperationException("请先继续已有系统升级任务，或等待当前设备操作结束。");
+        return pending.FirstOrDefault(t=>t.Options.ToolsOnly);
+    }
+
     public static bool NeedsBundledMaintenance(JsonElement status,UpgradeOptions options,string? bundledDigest=null)
     {
         if(options.BundleSha256 is null)return false;
@@ -190,7 +198,15 @@ public static class AutomaticUpgrade
                     if(stage=="failed-needs-recovery")throw new InvalidOperationException("固件任务需要恢复；请查询原 BOOT 任务后继续或回滚。");
                     if(stage=="updating-system" && status.TryGetProperty("job",out var systemJob) &&
                        Protocol.Text(systemJob,"job_id")==Protocol.Text(current,"system_job_id") && Protocol.Text(systemJob,"stage")=="failed-recoverable")
-                        throw new InvalidOperationException("配套普通系统更新中断；请恢复原系统任务。");
+                        {
+                        string detail="设备未提供具体错误";
+                        if(systemJob.TryGetProperty("error",out var failure) && failure.ValueKind==JsonValueKind.Object)
+                            detail=Protocol.Text(failure,"code")+": "+Protocol.Text(failure,"message");
+                        string writing=systemJob.TryGetProperty("write_started",out var started) && started.ValueKind is JsonValueKind.True or JsonValueKind.False
+                            ? (started.ValueKind==JsonValueKind.True?"已开始写盘":"尚未写盘") : "写盘状态未提供";
+                        throw new InvalidOperationException("配套普通系统更新暂停（"+writing+"）："+detail+
+                            "；保留原任务，完成修复后使用原 BOOT request ID 继续。");
+                    }
                     if(stage=="backup-ready")
                     {
                         string directory;
