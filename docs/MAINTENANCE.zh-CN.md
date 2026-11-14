@@ -2,7 +2,7 @@
 
 [English](MAINTENANCE.md)
 
-本仓库遵循[组织维护流程](https://github.com/ArmbianHPC/.github/blob/main/GOVERNANCE.zh-CN.md)。目前维护者为 `chens32`，PR 必需检查通过并解决讨论，审批人数为 0，不要求 Code Owner 审批。
+本仓库遵循[组织维护流程](https://github.com/EDGEHPC/.github/blob/main/GOVERNANCE.zh-CN.md)。目前维护者为 `chens32`，PR 必需检查通过并解决讨论，审批人数为 0，不要求 Code Owner 审批。
 
 ## CI
 

@@ -2,7 +2,7 @@
 
 [简体中文](MAINTENANCE.zh-CN.md)
 
-This repository follows the [organization workflow](https://github.com/ArmbianHPC/.github/blob/main/GOVERNANCE.md). The sole maintainer is `chens32`; PRs require passing CI and resolved conversations, with zero approving reviews and no mandatory Code Owner review.
+This repository follows the [organization workflow](https://github.com/EDGEHPC/.github/blob/main/GOVERNANCE.md). The sole maintainer is `chens32`; PRs require passing CI and resolved conversations, with zero approving reviews and no mandatory Code Owner review.
 
 ## CI
 

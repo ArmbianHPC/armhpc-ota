@@ -105,7 +105,7 @@ def build(payload, output, work, wix, version, ui_extension):
          AllowSameVersionUpgrades='yes', Schedule='afterInstallInitialize')
     node(package, 'MediaTemplate', EmbedCab='yes', CompressionLevel='high')
     node(package, 'Property', Id='ARPCOMMENTS', Value='ARMHPC OTA GUI, CLI and signed maintenance')
-    node(package, 'Property', Id='ARPURLINFOABOUT', Value='https://github.com/ArmbianHPC/armhpc-ota')
+    node(package, 'Property', Id='ARPURLINFOABOUT', Value='https://github.com/EDGEHPC/armhpc-ota')
     node(package, 'Property', Id='INSTALLFOLDER', Secure='yes')
     previous = node(package, 'Property', Id='PREVIOUSINSTALLFOLDER')
     node(previous, 'RegistrySearch', Id='PreviousInstallDirectory', Root='HKCU',
