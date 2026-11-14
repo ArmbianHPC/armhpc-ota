@@ -27,11 +27,11 @@ ARMHPC OTA **1.2.3** 是面向 ARM Linux 系统的通用升级与设备管理平
 | 设备引擎 | 签名验证、下载、持久任务、部署、恢复和工具维护。 |
 | 上位机 | 设备发现、认证、SSH／串口传输、批量命令和重连。 |
 | 发布工具 | 包签名与可选的本地文件服务。 |
-| 固件接入 | [armbian-hpc](https://github.com/ArmbianHPC/armbian-hpc) 负责板卡配置、引导处理、存储布局及系统载荷生成。 |
+| 固件接入 | [armbian-hpc](https://github.com/EDGEHPC/armbian-hpc) 负责板卡配置、引导处理、存储布局及系统载荷生成。 |
 
 ## 开始使用
 
-从 [Releases](https://github.com/ArmbianHPC/armhpc-ota/releases) 下载软件。
+从 [Releases](https://github.com/EDGEHPC/armhpc-ota/releases) 下载软件。
 
 | 文件 | 用途 |
 | --- | --- |
@@ -49,7 +49,7 @@ armhpc-rescue ota tools update --bundle /path/maintenance.tar.xz --yes --json
 armhpc-rescue ota recover --release current --target system --yes --json
 ```
 
-从 [armbian-hpc](https://github.com/ArmbianHPC/armbian-hpc) 选择与设备板卡配置匹配的系统 OTA 包。维护包更新工具，不替换系统镜像。
+从 [armbian-hpc](https://github.com/EDGEHPC/armbian-hpc) 选择与设备板卡配置匹配的系统 OTA 包。维护包更新工具，不替换系统镜像。
 
 ## 文档
 
@@ -57,7 +57,7 @@ armhpc-rescue ota recover --release current --target system --yes --json
 
 - [贡献说明](CONTRIBUTING.zh-CN.md)
 - [维护说明](docs/MAINTENANCE.zh-CN.md)
-- [使用咨询与建议](https://github.com/ArmbianHPC/armbian-hpc/discussions)
+- [使用咨询与建议](https://github.com/EDGEHPC/armbian-hpc/discussions)
 
 - [Windows 安装](docs/INSTALLATION.zh-CN.md)
 - [Windows GUI／CLI](docs/WINDOWS.md)

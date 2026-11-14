@@ -136,7 +136,7 @@ def update(repo, tag, directory, apply=False, notes=None, release_id=None, publi
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--repo', default='ArmbianHPC/armhpc-ota')
+    parser.add_argument('--repo', default='EDGEHPC/armhpc-ota')
     parser.add_argument('--tag', required=True)
     parser.add_argument('--directory', type=Path, required=True)
     parser.add_argument('--apply', action='store_true')

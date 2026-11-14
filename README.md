@@ -26,11 +26,11 @@ The device engine requires Python 3.11 or later and includes ARM64 and ARM32 run
 | Device engine | Signature verification, downloads, persistent tasks, deployment, recovery, and tool maintenance. |
 | Controller tools | Device discovery, authentication, SSH/serial transport, batch commands, and reconnection. |
 | Publisher | Package signing and optional local file service. |
-| Firmware integration | Board profiles, boot handling, storage layout, and system payload generation in [armbian-hpc](https://github.com/ArmbianHPC/armbian-hpc). |
+| Firmware integration | Board profiles, boot handling, storage layout, and system payload generation in [armbian-hpc](https://github.com/EDGEHPC/armbian-hpc). |
 
 ## Get started
 
-Download the software from [Releases](https://github.com/ArmbianHPC/armhpc-ota/releases).
+Download the software from [Releases](https://github.com/EDGEHPC/armhpc-ota/releases).
 
 | Package | Purpose |
 | --- | --- |
@@ -48,7 +48,7 @@ armhpc-rescue ota tools update --bundle /path/maintenance.tar.xz --yes --json
 armhpc-rescue ota recover --release current --target system --yes --json
 ```
 
-Choose a system OTA package that matches the device's board profile from [armbian-hpc](https://github.com/ArmbianHPC/armbian-hpc). A maintenance package updates tools; it does not replace the system image.
+Choose a system OTA package that matches the device's board profile from [armbian-hpc](https://github.com/EDGEHPC/armbian-hpc). A maintenance package updates tools; it does not replace the system image.
 
 ## Documentation
 
@@ -56,7 +56,7 @@ Choose a system OTA package that matches the device's board profile from [armbia
 
 - [Contributing](CONTRIBUTING.md)
 - [Maintenance](docs/MAINTENANCE.md)
-- [Questions and ideas](https://github.com/ArmbianHPC/armbian-hpc/discussions)
+- [Questions and ideas](https://github.com/EDGEHPC/armbian-hpc/discussions)
 
 - [Windows installation](docs/INSTALLATION.md)
 - [Windows GUI and CLI](docs/WINDOWS.md)

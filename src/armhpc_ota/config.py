@@ -16,7 +16,7 @@ class Config:
     cache: Path = Path('/data/armhpc-ota/cache')
     trust: Path = Path('/etc/armhpc/ota-trust.d')
     feed: str = 'https://github.com/chens32/armbian-hpc/releases/latest/download/ota-index.json'
-    tools_source: str = 'https://github.com/ArmbianHPC/armhpc-ota/releases'
+    tools_source: str = 'https://github.com/EDGEHPC/armhpc-ota/releases'
     profile: str = 'wxy-oect-original'
     storage_layout: str | None = None
     simulate: Path | None = None
